@@ -1,0 +1,27 @@
+name: agent-office
+version: "0.1.0"
+description: "Agent Office telemetry and event hook ingestion plugin for Hermes agents."
+entrypoint: "agent_office:register"
+hooks:
+  - session_start
+  - session_end
+  - before_turn
+  - after_turn
+  - before_tool_call
+  - after_tool_call
+tools: []
+# Extended Hermes manifest compatibility fields
+provides_hooks:
+  - session_start
+  - session_end
+  - before_turn
+  - after_turn
+  - before_tool_call
+  - after_tool_call
+  - on_session_start
+  - on_session_end
+  - pre_llm_call
+  - post_llm_call
+  - pre_tool_call
+  - post_tool_call
+provides_tools: []
