@@ -712,6 +712,16 @@ class OfficeStorage:
             else:
                 status = "info"
 
+        if agent_id:
+            agent_status = "idle" if event.event_type in ("session_end", "on_session_end") else "busy"
+            model = payload.get("model") or payload.get("current_model")
+            self.register_or_update_agent(
+                agent_id=str(agent_id),
+                status=agent_status,
+                current_model=str(model) if model else None,
+                last_seen_at=event.timestamp,
+            )
+
         return self.record_activity_event(
             event_id=event.event_id,
             session_id=event.session_id,
