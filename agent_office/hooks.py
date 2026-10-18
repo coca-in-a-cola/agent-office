@@ -196,19 +196,22 @@ class HookManager:
         return self.after_tool_call(*args, **kwargs)
 
     def register_to_context(self, ctx: Any) -> dict[str, Any]:
-        """Register all hooks with a Hermes PluginContext or duck-typed registry.
+        """Register hooks with a Hermes PluginContext or duck-typed registry.
 
-        Registers both direct names and Hermes canonical hook names.
+        For native Hermes plugin contexts, registers canonical Hermes lifecycle hooks:
+        on_session_start, on_session_end, pre_llm_call, post_llm_call, pre_tool_call, post_tool_call.
+        For duck-typed or test contexts, registers both direct names and Hermes canonical names.
         """
         registered: dict[str, Any] = {}
-        hook_bindings = [
-            ("session_start", self.session_start),
-            ("session_end", self.session_end),
-            ("before_turn", self.before_turn),
-            ("after_turn", self.after_turn),
-            ("before_tool_call", self.before_tool_call),
-            ("after_tool_call", self.after_tool_call),
-            # Hermes canonical lifecycle and tool hooks
+
+        is_hermes = (
+            hasattr(ctx, "plugin_id")
+            or hasattr(ctx, "_manager")
+            or hasattr(ctx, "_manifest")
+            or getattr(ctx, "strict_hermes", False)
+        )
+
+        canonical_hooks = [
             ("on_session_start", self.on_session_start),
             ("on_session_end", self.on_session_end),
             ("pre_llm_call", self.pre_llm_call),
@@ -216,6 +219,19 @@ class HookManager:
             ("pre_tool_call", self.pre_tool_call),
             ("post_tool_call", self.post_tool_call),
         ]
+
+        if is_hermes:
+            hook_bindings = canonical_hooks
+        else:
+            legacy_hooks = [
+                ("session_start", self.session_start),
+                ("session_end", self.session_end),
+                ("before_turn", self.before_turn),
+                ("after_turn", self.after_turn),
+                ("before_tool_call", self.before_tool_call),
+                ("after_tool_call", self.after_tool_call),
+            ]
+            hook_bindings = legacy_hooks + canonical_hooks
 
         for name, callback in hook_bindings:
             try:
