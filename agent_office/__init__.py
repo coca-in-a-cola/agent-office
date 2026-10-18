@@ -31,6 +31,14 @@ from .hooks import (
     session_end,
     session_start,
 )
+from .storage import (
+    EventSink,
+    OfficeStorage,
+    get_default_db_path,
+    get_default_sink,
+    get_default_storage,
+    reset_default_storage,
+)
 
 __version__ = "0.1.0"
 __all__ = [
@@ -54,11 +62,25 @@ __all__ = [
     "post_llm_call",
     "pre_tool_call",
     "post_tool_call",
+    "OfficeStorage",
+    "EventSink",
+    "get_default_db_path",
+    "get_default_storage",
+    "reset_default_storage",
+    "get_default_sink",
     "register",
 ]
 
 
 def register(ctx: Any) -> dict[str, Any]:
-    """Hermes plugin entry point. Registers all lifecycle and tool hooks with the context."""
+    """Hermes plugin entry point. Registers all lifecycle and tool hooks with the context
+
+    and ensures the local storage event sink is attached.
+    """
+    try:
+        get_default_sink().attach()
+    except Exception:
+        pass
+
     manager = get_default_hook_manager()
     return manager.register_to_context(ctx)
