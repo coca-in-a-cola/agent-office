@@ -1,0 +1,9 @@
+{
+  "name": "agent-office",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "cd web && bun run build",
+    "dev": "cd web && bun run dev"
+  }
+}
