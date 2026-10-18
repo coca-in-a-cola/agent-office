@@ -146,12 +146,30 @@ MIGRATIONS: list[Migration] = [
             raw_snapshot_json TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS routing_decisions (
+            id TEXT PRIMARY KEY,
+            task_id TEXT,
+            selected_agent_id TEXT,
+            selected_profile_name TEXT,
+            router_used TEXT,
+            confidence REAL,
+            risk_level TEXT,
+            candidate_scores_json TEXT,
+            risk_assessment_json TEXT,
+            rationale TEXT,
+            timestamp REAL,
+            metadata_json TEXT
+        );
+
         CREATE INDEX IF NOT EXISTS idx_activity_events_session ON activity_events(session_id);
         CREATE INDEX IF NOT EXISTS idx_activity_events_agent ON activity_events(agent_id);
         CREATE INDEX IF NOT EXISTS idx_activity_events_timestamp ON activity_events(timestamp);
         CREATE INDEX IF NOT EXISTS idx_task_snapshots_kanban ON task_snapshots(kanban_task_id);
         CREATE INDEX IF NOT EXISTS idx_task_snapshots_board ON task_snapshots(board_slug);
         CREATE INDEX IF NOT EXISTS idx_task_snapshots_status ON task_snapshots(status);
+        CREATE INDEX IF NOT EXISTS idx_routing_decisions_task ON routing_decisions(task_id);
+        CREATE INDEX IF NOT EXISTS idx_routing_decisions_agent ON routing_decisions(selected_agent_id);
+        CREATE INDEX IF NOT EXISTS idx_routing_decisions_timestamp ON routing_decisions(timestamp);
         """,
     ),
 ]
@@ -754,6 +772,207 @@ class OfficeStorage:
                 d["details"] = _deserialize_json(d.get("details_json"))
                 results.append(d)
             return results
+
+    # --- Routing Decisions and Operational Stats ---
+
+    @_fail_open(default_return=False)
+    def record_routing_decision(
+        self,
+        decision: Any,
+    ) -> bool:
+        """Insert or replace a routing decision record.
+
+        Accepts a RoutingDecision object (with to_dict()) or a dict.
+        """
+        if decision is None:
+            return False
+
+        if hasattr(decision, "to_dict") and callable(decision.to_dict):
+            data = decision.to_dict()
+        elif isinstance(decision, dict):
+            data = decision
+        else:
+            return False
+
+        dec_id = str(data.get("decision_id") or data.get("id") or "")
+        if not dec_id:
+            return False
+
+        task_id = str(data.get("task_id", ""))
+        selected_agent = str(data.get("selected_agent_id", ""))
+        selected_profile = str(data.get("selected_profile_name", ""))
+        router_used = str(data.get("router_used", "heuristic"))
+        confidence = float(data.get("confidence", 0.0))
+
+        risk = data.get("risk_assessment")
+        risk_level = ""
+        if isinstance(risk, dict):
+            risk_level = str(risk.get("level", ""))
+        elif hasattr(risk, "level"):
+            risk_level = str(getattr(risk.level, "value", risk.level))
+
+        scores_json = _serialize_json(data.get("candidate_scores"))
+        risk_json = _serialize_json(risk)
+        rationale = str(data.get("rationale", ""))
+        ts = float(data.get("timestamp", time.time()))
+        meta_json = _serialize_json(data.get("metadata"))
+
+        with self._lock:
+            conn = self.get_connection()
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO routing_decisions (
+                    id, task_id, selected_agent_id, selected_profile_name,
+                    router_used, confidence, risk_level, candidate_scores_json,
+                    risk_assessment_json, rationale, timestamp, metadata_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                """,
+                (
+                    dec_id,
+                    task_id,
+                    selected_agent,
+                    selected_profile,
+                    router_used,
+                    confidence,
+                    risk_level,
+                    scores_json,
+                    risk_json,
+                    rationale,
+                    ts,
+                    meta_json,
+                ),
+            )
+            return True
+
+    @_fail_open(default_return=None)
+    def get_routing_decision(self, decision_id: str) -> Optional[dict[str, Any]]:
+        """Fetch routing decision record by decision ID."""
+        if not decision_id:
+            return None
+        with self._lock:
+            conn = self.get_connection()
+            cur = conn.execute("SELECT * FROM routing_decisions WHERE id = ?;", (decision_id,))
+            row = cur.fetchone()
+            if row is None:
+                return None
+            res = dict(row)
+            res["candidate_scores"] = _deserialize_json(res.get("candidate_scores_json"))
+            res["risk_assessment"] = _deserialize_json(res.get("risk_assessment_json"))
+            res["metadata"] = _deserialize_json(res.get("metadata_json"))
+            return res
+
+    @_fail_open(default_return=[])
+    def list_routing_decisions(
+        self,
+        task_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Query routing decisions with filtering."""
+        query = "SELECT * FROM routing_decisions WHERE 1=1"
+        params: list[Any] = []
+        if task_id:
+            query += " AND task_id = ?"
+            params.append(task_id)
+        if agent_id:
+            query += " AND selected_agent_id = ?"
+            params.append(agent_id)
+        query += " ORDER BY timestamp DESC LIMIT ?;"
+        params.append(limit)
+
+        with self._lock:
+            conn = self.get_connection()
+            cur = conn.execute(query, params)
+            results = []
+            for row in cur.fetchall():
+                d = dict(row)
+                d["candidate_scores"] = _deserialize_json(d.get("candidate_scores_json"))
+                d["risk_assessment"] = _deserialize_json(d.get("risk_assessment_json"))
+                d["metadata"] = _deserialize_json(d.get("metadata_json"))
+                results.append(d)
+            return results
+
+    @_fail_open(default_return=False)
+    def update_agent_operational_stats(
+        self,
+        agent_id: str,
+        latency_ms: Optional[float] = None,
+        error_occurred: Optional[bool] = None,
+        cost: Optional[float] = None,
+        success: Optional[bool] = None,
+    ) -> bool:
+        """Update operational statistics (latency, error rate, cost, success rate) for an agent."""
+        if not agent_id:
+            return False
+
+        with self._lock:
+            agent = self.get_agent(agent_id)
+            if agent is None:
+                self.register_or_update_agent(agent_id=agent_id, profile_name=agent_id.capitalize())
+                agent = self.get_agent(agent_id)
+                if agent is None:
+                    return False
+
+            metadata = agent.get("metadata") or {}
+            stats = metadata.get("operational_stats") or {
+                "latency_ms": 0.0,
+                "total_calls": 0,
+                "error_count": 0,
+                "error_rate": 0.0,
+                "cost_per_token": 0.0,
+                "total_cost": 0.0,
+                "success_rate": 1.0,
+                "active_tasks": 0,
+            }
+
+            total_calls = int(stats.get("total_calls", 0)) + 1
+            stats["total_calls"] = total_calls
+
+            if latency_ms is not None:
+                prev_lat = float(stats.get("latency_ms", 0.0))
+                new_lat = ((prev_lat * (total_calls - 1)) + float(latency_ms)) / total_calls
+                stats["latency_ms"] = round(new_lat, 2)
+
+            error_count = int(stats.get("error_count", 0))
+            if error_occurred is True or (success is False):
+                error_count += 1
+            stats["error_count"] = error_count
+            stats["error_rate"] = round(error_count / total_calls, 4)
+            stats["success_rate"] = round((total_calls - error_count) / total_calls, 4)
+
+            if cost is not None:
+                stats["total_cost"] = round(float(stats.get("total_cost", 0.0)) + float(cost), 6)
+
+            metadata["operational_stats"] = stats
+            self.register_or_update_agent(agent_id=agent_id, metadata=metadata)
+            return True
+
+    @_fail_open(default_return={})
+    def get_agent_operational_stats(self, agent_id: str) -> dict[str, Any]:
+        """Fetch operational statistics dictionary for an agent."""
+        if not agent_id:
+            return {}
+        agent = self.get_agent(agent_id)
+        if not agent:
+            return {
+                "latency_ms": 0.0,
+                "total_calls": 0,
+                "error_count": 0,
+                "error_rate": 0.0,
+                "success_rate": 1.0,
+                "total_cost": 0.0,
+                "active_tasks": 0,
+            }
+        metadata = agent.get("metadata") or {}
+        return dict(metadata.get("operational_stats") or {
+            "latency_ms": 0.0,
+            "total_calls": 0,
+            "error_count": 0,
+            "error_rate": 0.0,
+            "success_rate": 1.0,
+            "total_cost": 0.0,
+            "active_tasks": 0,
+        })
 
 
 class EventSink:

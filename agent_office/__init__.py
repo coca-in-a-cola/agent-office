@@ -47,6 +47,22 @@ from .server import (
     normalize_status,
     run_server,
 )
+from .routing import (
+    AgentCandidate,
+    DEFAULT_CANDIDATES,
+    GamificationStats,
+    HeuristicFallbackRouter,
+    JevAdapter,
+    OperationalStats,
+    ReviewGate,
+    RiskAssessment,
+    RiskAssessmentEngine,
+    RiskLevel,
+    RoutingDecision,
+    TaskRoutingRequest,
+    get_default_candidates,
+    get_default_router,
+)
 
 __version__ = "0.1.0"
 __all__ = [
@@ -82,6 +98,20 @@ __all__ = [
     "get_office_state",
     "normalize_status",
     "run_server",
+    "RiskLevel",
+    "ReviewGate",
+    "RiskAssessment",
+    "OperationalStats",
+    "GamificationStats",
+    "AgentCandidate",
+    "DEFAULT_CANDIDATES",
+    "get_default_candidates",
+    "TaskRoutingRequest",
+    "RoutingDecision",
+    "RiskAssessmentEngine",
+    "HeuristicFallbackRouter",
+    "JevAdapter",
+    "get_default_router",
     "register",
 ]
 
