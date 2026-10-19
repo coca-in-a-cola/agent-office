@@ -14,6 +14,7 @@ import {
   Filter,
   GitBranch,
   ExternalLink,
+  Terminal,
 } from 'lucide-react';
 
 interface EmployeeRosterProps {
@@ -23,6 +24,11 @@ interface EmployeeRosterProps {
   /** Jump to a workflow run/node in Process Studio. */
   onOpenWorkflow?: (runId: string, node: string, source?: string) => void;
 }
+
+// Per-employee avatar theme (unselected state); WebDev gets the cyan/blue web look.
+const AVATAR_THEME: Record<string, string> = {
+  webdev: 'bg-sky-950/80 border-sky-500/60 text-sky-300',
+};
 
 export const EmployeeRoster: React.FC<EmployeeRosterProps> = ({
   agents,
@@ -144,7 +150,8 @@ export const EmployeeRoster: React.FC<EmployeeRosterProps> = ({
                       className={`w-9 h-9 rounded-lg flex items-center justify-center font-bold text-sm border shadow-sm ${
                         isSelected
                           ? 'bg-cyan-950/80 border-cyan-500/60 text-cyan-300'
-                          : 'bg-slate-800 border-slate-700 text-slate-300 group-hover:border-slate-600'
+                          : AVATAR_THEME[agent.id.toLowerCase()]
+                            ?? 'bg-slate-800 border-slate-700 text-slate-300 group-hover:border-slate-600'
                       }`}
                     >
                       {agent.profile_name ? agent.profile_name[0] : 'A'}
@@ -214,6 +221,25 @@ export const EmployeeRoster: React.FC<EmployeeRosterProps> = ({
                       )}
                     </div>
                   </button>
+                ) : agent.bridge_task ? (
+                  <div className="mb-2.5 bg-slate-950/70 border border-emerald-900/70 rounded-lg p-2.5">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="flex items-center gap-1 text-[10px] font-semibold tracking-wider text-emerald-400 uppercase font-mono">
+                        <Terminal size={11} />
+                        Bridge Task
+                      </span>
+                      <span className="text-[10px] font-mono text-slate-400 truncate max-w-[140px]">
+                        {agent.bridge_task.task_id}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-200 font-medium line-clamp-2">
+                      {agent.bridge_task.title}
+                    </p>
+                    <div className="flex items-center gap-2 mt-1 text-[10px] text-slate-500">
+                      <span>Executor: <strong className="text-slate-400">{agent.bridge_task.executor || '?'}</strong></span>
+                      <span>• {agent.bridge_task.is_live ? 'live' : agent.bridge_task.state}</span>
+                    </div>
+                  </div>
                 ) : agent.active_task ? (
                   <div className="mb-2.5 bg-slate-950/70 border border-slate-800/90 rounded-lg p-2.5">
                     <div className="flex items-center justify-between mb-1">

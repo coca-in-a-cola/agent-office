@@ -5,6 +5,7 @@ import { EmployeeRoster } from './components/EmployeeRoster';
 import { StatusBadge } from './components/StatusBadge';
 import { WorkflowAssignmentBadge } from './components/WorkflowAssignmentBadge';
 import { ProcessStudio } from './components/process_studio/ProcessStudio';
+import { WorkstationMonitor } from './components/WorkstationMonitor';
 import {
   Building2,
   Activity,
@@ -13,7 +14,6 @@ import {
   RefreshCw,
   Cpu,
   Layers,
-  Terminal,
   X,
   GitBranch,
   Building,
@@ -46,11 +46,20 @@ const FALLBACK_STATE: OfficeState = {
     {
       id: 'coder',
       profile_name: 'Coder',
-      role: 'Coder',
+      role: 'Game Developer (Godot)',
       status: 'idle',
       current_model: 'anthropic/claude-3-5-sonnet',
-      capabilities: ['python', 'typescript', 'architecture', 'algorithms'],
+      capabilities: ['godot4', 'gdscript', 'c_sharp', 'shaders', 'physics', 'rendering'],
       metadata: { desk: 'engineering', position: [0, 1] },
+    },
+    {
+      id: 'webdev',
+      profile_name: 'WebDev',
+      role: 'Web Engineer',
+      status: 'idle',
+      current_model: 'anthropic/claude-3-5-sonnet',
+      capabilities: ['react', 'typescript', 'tailwind', 'vite', 'web_apis', 'browser_testing', 'performance'],
+      metadata: { desk: 'frontend', position: [2, 0], avatar: 'webdev' },
     },
     {
       id: 'devops',
@@ -76,7 +85,7 @@ const FALLBACK_STATE: OfficeState = {
   meta: {
     is_fallback: true,
     db_path: 'office.sqlite3',
-    total_agents: 5,
+    total_agents: 6,
     total_tasks: 0,
     total_activities: 0,
   },
@@ -424,41 +433,8 @@ export const App: React.FC = () => {
               </div>
             )}
 
-            {/* Recent Tool Activity for Agent */}
-            <div>
-              <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5 mb-2">
-                <Terminal size={13} className="text-amber-400" />
-                Recent Tool Executions
-              </span>
-              {selectedAgent.recent_activities && selectedAgent.recent_activities.length > 0 ? (
-                <div className="space-y-2">
-                  {selectedAgent.recent_activities.map((act) => (
-                    <div
-                      key={act.id}
-                      className="bg-slate-950/90 border border-slate-800/80 rounded-lg p-2.5 space-y-1"
-                    >
-                      <div className="flex items-center justify-between font-mono text-[10px]">
-                        <span className="text-cyan-400 font-medium">
-                          {act.tool_name || act.event_type}
-                        </span>
-                        {act.latency_ms !== undefined && (
-                          <span className="text-slate-500">
-                            {Math.round(act.latency_ms)}ms
-                          </span>
-                        )}
-                      </div>
-                      {act.tool_input_preview && (
-                        <p className="text-slate-400 font-mono text-[10px] truncate">
-                          args: {act.tool_input_preview}
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-slate-500 italic">No recent tool calls logged.</p>
-              )}
-            </div>
+            {/* Workstation Monitor: live terminal of the agent's Bridge task */}
+            <WorkstationMonitor agent={selectedAgent} />
           </div>
         </div>
       )}
