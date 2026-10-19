@@ -7,6 +7,8 @@ interface GraphViewProps {
   nodeStates?: Record<string, NodeRunState>;
   selectedNode: string | null;
   onSelectNode: (node: string) => void;
+  /** Node opened from Tycoon View; drawn with a cyan "linked" ring. */
+  highlightNode?: string | null;
 }
 
 const NODE_W = 150;
@@ -33,6 +35,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
   nodeStates,
   selectedNode,
   onSelectNode,
+  highlightNode = null,
 }) => {
   const layout = useMemo(() => {
     const column: Record<string, number> = {};
@@ -180,6 +183,20 @@ export const GraphView: React.FC<GraphViewProps> = ({
               role="button"
               aria-label={`${name}: ${style.label}`}
             >
+              {highlightNode === name && (
+                <rect
+                  x={-8}
+                  y={-8}
+                  width={NODE_W + 16}
+                  height={NODE_H + 16}
+                  rx={16}
+                  fill="none"
+                  stroke="#22d3ee"
+                  strokeWidth="2"
+                  strokeDasharray="6 4"
+                  data-testid="tycoon-highlight"
+                />
+              )}
               {style.pulse && (
                 <rect
                   x={-4}

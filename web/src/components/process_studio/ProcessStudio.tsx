@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, GitBranch, X } from 'lucide-react';
+import { AlertTriangle, Building, GitBranch, X } from 'lucide-react';
+import { StudioFocus } from '../../types';
 import { RunCommand, workflowApi } from '../../workflowApi';
 import {
   DefinitionSummary,
@@ -25,13 +26,19 @@ const LEGEND: NodeState[] = [
   'approval_wait',
 ];
 
-export const ProcessStudio: React.FC = () => {
+interface ProcessStudioProps {
+  /** Run/node to open, e.g. requested from a Tycoon View desk or roster badge. */
+  focus?: StudioFocus | null;
+  onDismissFocus?: () => void;
+}
+
+export const ProcessStudio: React.FC<ProcessStudioProps> = ({ focus = null, onDismissFocus }) => {
   const [definitions, setDefinitions] = useState<DefinitionSummary[]>([]);
   const [definitionCache, setDefinitionCache] = useState<Record<string, WorkflowDefinition>>({});
   const [runs, setRuns] = useState<RunSummary[]>([]);
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(focus?.runId ?? null);
   const [detail, setDetail] = useState<RunDetail | null>(null);
-  const [selectedNode, setSelectedNode] = useState<string | null>(null);
+  const [selectedNode, setSelectedNode] = useState<string | null>(focus?.node ?? null);
   const [error, setError] = useState<string | null>(null);
   const [offline, setOffline] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -82,6 +89,16 @@ export const ProcessStudio: React.FC = () => {
     const timer = setInterval(() => void refresh(), POLL_MS);
     return () => clearInterval(timer);
   }, [refresh]);
+
+  // A new Tycoon View jump while mounted re-targets run and node.
+  useEffect(() => {
+    if (!focus) return;
+    setSelectedRunId(focus.runId);
+    setSelectedNode(focus.node);
+    setDetail((d) => (d?.run.run_id === focus.runId ? d : null));
+  }, [focus?.nonce]);
+
+  const linked = focus && detail?.run.run_id === focus.runId ? focus : null;
 
   const selectRun = (runId: string) => {
     setSelectedRunId(runId);
@@ -180,6 +197,26 @@ export const ProcessStudio: React.FC = () => {
         )}
 
         <div className="flex-1 overflow-auto p-5 space-y-4">
+          {linked && (
+            <div className="flex items-center justify-between gap-2 rounded-lg border border-cyan-500/50 bg-cyan-950/40 px-3 py-2 text-xs text-cyan-200">
+              <span className="flex items-center gap-2">
+                <Building size={14} />
+                Opened from Tycoon View{linked.source ? ` (${linked.source})` : ''}: run{' '}
+                <span className="font-mono">{linked.runId}</span>
+                {linked.node && (
+                  <>
+                    {' '}· node <span className="font-mono">{linked.node}</span>
+                  </>
+                )}
+              </span>
+              {onDismissFocus && (
+                <button onClick={onDismissFocus} className="text-cyan-300 hover:text-white" aria-label="Dismiss">
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+          )}
+
           {definition ? (
             <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-3">
               <GraphView
@@ -187,6 +224,7 @@ export const ProcessStudio: React.FC = () => {
                 nodeStates={detail?.node_states}
                 selectedNode={focusNode}
                 onSelectNode={setSelectedNode}
+                highlightNode={linked?.node ?? null}
               />
             </div>
           ) : (
