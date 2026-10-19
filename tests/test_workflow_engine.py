@@ -441,3 +441,302 @@ class CorrelationAndDuplicateTests(EngineCase):
         for _ in range(3):
             self.h.restart().tick()                 # repeated polls after restarts
         self.assertEqual(self.nodes_submitted(), ["implementation", "acceptance"])
+
+
+class DefectAndEvidenceTests(EngineCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.start()
+
+    def test_acceptance_defect_loops_once_then_blocks(self) -> None:
+        self.advance_to("acceptance")
+        self.h.finish(ev=dict(evidence("acceptance"), verdict="defect"))
+        active = self.h.active()
+        self.assertEqual((active["node"], active["iteration"]), ("implementation", 2))
+        earlier = [a for a in self.h.repo.attempts("run-1")
+                   if a["attempt_id"] != active["attempt_id"]]
+        self.assertTrue(earlier and all(a["stale"] for a in earlier))
+        self.h.finish(sha=SHA2)
+        self.assertEqual(self.h.run()["source_sha"], SHA2)
+        self.h.finish(ev=dict(evidence("acceptance", SHA2), verdict="defect"))
+        run = self.h.run()
+        self.assertEqual(run["status"], "blocked")
+        self.assertIn("iteration limit", run["status_reason"])
+        self.assertIsNone(self.h.active())
+        self.assertEqual(len(self.h.bridge.tasks()), 4)
+
+    def test_stale_source_sha_is_rejected_after_correction(self) -> None:
+        self.advance_to("acceptance")
+        self.h.finish(ev=dict(evidence("acceptance"), verdict="defect"))
+        self.h.finish(sha=SHA2)
+        old = self.h.finish(ev=evidence("acceptance", SHA1))  # stale input
+        self.assertIn("stale or foreign input",
+                      self.h.repo.get_attempt(old["attempt_id"])["reason"])
+        retry = self.h.active()
+        self.assertEqual((retry["node"], retry["attempt_no"]), ("acceptance", 2))
+        self.h.finish(ev=evidence("acceptance", SHA2))
+        self.assertEqual(self.h.active()["node"], "build")
+
+    def test_acceptance_must_be_independent_of_implementation(self) -> None:
+        self.advance_to("acceptance")
+        self.h.finish(ev=evidence("acceptance", producer="implementer-a"))
+        self.h.finish(ev=evidence("acceptance", producer="implementer-a"))
+        run = self.h.run()
+        self.assertEqual(run["status"], "blocked")
+        self.assertIn("2/2 attempts exhausted", run["status_reason"])
+        reasons = [a["reason"] for a in self.h.repo.attempts("run-1", "acceptance")]
+        self.assertTrue(all("also produced implementation" in r for r in reasons))
+
+    def test_mutated_artifact_never_reaches_publication(self) -> None:
+        self.advance_to("artifact_check")
+        self.h.finish(ev=evidence("artifact_check", checked_digest=D("9")))
+        self.assertEqual(self.h.active()["node"], "artifact_check")
+        self.h.finish(ev=evidence("artifact_check", checked_digest=D("9")))
+        self.assertEqual(self.h.run()["status"], "blocked")
+        self.assertNotIn("publication", self.nodes_submitted())
+        self.assertEqual(self.h.repo.gates("run-1"), [])
+
+    def test_artifact_check_defect_rebuilds_and_invalidates_check(self) -> None:
+        self.advance_to("artifact_check")
+        self.h.finish(ev=dict(evidence("artifact_check"), verdict="defect"))
+        self.assertEqual(self.h.active()["node"], "build")
+        self.assertEqual(self.h.active()["iteration"], 2)
+        self.h.finish(ev=evidence("build", artifacts={"build_artifact": D("7")}))
+        # The check must now bind the NEW digest; the old one is stale.
+        self.h.finish(ev=evidence("artifact_check"))
+        self.assertEqual(self.h.active()["node"], "artifact_check")
+        self.h.finish(ev=evidence("artifact_check", checked_digest=D("7")))
+        gate = self.h.gate()
+        self.assertEqual(gate["scope"], f"publish:{D('7')}")
+
+    def test_missing_artifact_digest_is_not_success(self) -> None:
+        bad = evidence("implementation", artifacts={"patch": "done!"})
+        self.h.finish(ev=bad)
+        attempt = self.h.active()
+        self.assertEqual((attempt["node"], attempt["attempt_no"]), ("implementation", 2))
+
+
+class FailureRecoveryTests(EngineCase):
+    def test_interrupted_executor_recovers_and_successor_starts_unattended(self) -> None:
+        self.start()
+        first = self.h.active()
+        self.h.bridge.interrupt(first["task_id"])
+        self.h = self.h.restart()                   # coordinator restart, no owner kick
+        self.h.tick()
+        retry = self.h.active()
+        self.assertEqual(retry["attempt_no"], 2)
+        self.assertIn("recovery after failure", retry["reason"])
+        self.assertIsNotNone(retry["task_id"])
+        self.h.finish()
+        self.assertEqual(self.h.active()["node"], "acceptance")
+        journal = [(t["from_node"], t["outcome"], t["target"])
+                   for t in self.h.repo.transitions("run-1")]
+        self.assertIn(("implementation", "failure", "@retry"), journal)
+
+    def test_failure_exhaustion_blocks_only_that_run(self) -> None:
+        self.start("run-1")
+        self.start("run-2")
+        self.h.finish("run-1", state=bp.FAILED, error="tests red")
+        self.h.finish("run-1", state=bp.FAILED, error="tests red")
+        self.assertEqual(self.h.run("run-1")["status"], "blocked")
+        self.assertIn("attempts exhausted", self.h.run("run-1")["status_reason"])
+        self.h.finish("run-2")
+        self.assertEqual(self.h.active("run-2")["node"], "acceptance")
+        self.assertEqual(self.h.run("run-2")["status"], "running")
+
+    def test_publication_failure_is_never_retried(self) -> None:
+        self.start()
+        self.advance_to("publication")
+        self.h.finish(state=bp.FAILED, error="upload 500")
+        self.assertEqual(self.h.run()["status"], "blocked")
+        self.assertEqual(self.nodes_submitted().count("publication"), 1)
+
+
+class TimeoutTests(EngineCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.start()
+
+    def overdue(self) -> dict:
+        attempt = self.h.active()
+        self.h.bridge.set_state(attempt["task_id"], bp.RUNNING, git_sha="wip-sha")
+        self.clock.advance(3601)
+        return attempt
+
+    def test_timeout_inspects_preserved_state_then_bounded_recovery(self) -> None:
+        attempt = self.overdue()
+        self.h.tick()
+        stored = self.h.repo.get_attempt(attempt["attempt_id"])
+        self.assertEqual(stored["status"], "timed_out")
+        self.assertIn("preserved sha wip-sha", stored["reason"])
+        self.assertEqual(self.h.bridge.calls("cancel"), [attempt["task_id"]])
+        retry = self.h.active()
+        self.assertEqual(retry["attempt_no"], 2)
+        self.assertIn("wip-sha", retry["reason"])
+        targets = [t["target"] for t in self.h.repo.transitions("run-1")]
+        self.assertIn("@inspect", targets)
+        self.overdue()
+        self.h.tick()
+        self.assertEqual(self.h.run()["status"], "blocked")
+        self.assertEqual(len(self.h.bridge.tasks()), 2)
+
+    def test_inspection_finds_completed_work_and_advances_without_rerun(self) -> None:
+        attempt = self.overdue()
+        with mock.patch.object(Coordinator, "_execute"):   # stop before inspection
+            self.h.tick()
+        self.assertEqual(self.h.run()["status"], "inspecting")
+        self.h.bridge.set_state(attempt["task_id"], bp.SUCCEEDED,
+                                evidence=evidence("implementation"))
+        self.h.tick()
+        self.assertEqual(self.h.active()["node"], "acceptance")
+        self.assertEqual(self.nodes_submitted(), ["implementation", "acceptance"])
+
+    def test_publication_timeout_blocks_instead_of_republishing(self) -> None:
+        self.advance_to("publication")
+        self.overdue()
+        self.h.tick()
+        run = self.h.run()
+        self.assertEqual(run["status"], "blocked")
+        self.assertIn("never retried automatically", run["status_reason"])
+        self.assertEqual(self.nodes_submitted().count("publication"), 1)
+
+    def test_bridge_reported_timeout_routes_to_inspection(self) -> None:
+        self.h.finish(state=bp.FAILED, error="Task timed out after 3600s")
+        self.assertEqual(self.h.active()["attempt_no"], 2)
+        self.assertIn("inspection", self.h.active()["reason"])
+
+
+class CancelTests(EngineCase):
+    def test_cancel_running_task_through_bridge(self) -> None:
+        self.start()
+        attempt = self.h.active()
+        self.h.engine.request_cancel("run-1", "owner changed plan")
+        self.assertEqual(self.h.run()["status"], "cancelling")
+        self.h.tick()
+        self.assertEqual(self.h.run()["status"], "cancelled")
+        self.assertEqual(self.h.bridge.calls("cancel"), [attempt["task_id"]])
+        self.assertEqual(self.h.repo.get_attempt(attempt["attempt_id"])["status"],
+                         "cancelled")
+        self.h.tick()
+        self.assertEqual(len(self.h.bridge.tasks()), 1)
+
+    def test_cancel_before_submit_reconciles_and_creates_no_task(self) -> None:
+        self.h.engine.start_run("run-1", self.v1, {"goal": "g"})
+        self.h.engine.request_cancel("run-1", "never mind")
+        self.h.tick()
+        self.assertEqual(self.h.run()["status"], "cancelled")
+        self.assertEqual(self.h.bridge.tasks(), [])
+        self.assertEqual(self.h.bridge.calls("submit"), [])
+
+    def test_cancel_after_lost_submit_ack_cancels_the_accepted_task(self) -> None:
+        self.h.engine.start_run("run-1", self.v1, {"goal": "g"})
+        self.h.bridge.inject("submit_lost_ack")
+        self.h.tick()
+        self.h.engine.request_cancel("run-1", "abort")
+        self.h.tick()
+        self.assertEqual(self.h.run()["status"], "cancelled")
+        self.assertEqual(self.h.bridge.tasks()[0]["state"], bp.CANCELLED)
+
+    def test_external_bridge_cancel_is_terminal_without_successor(self) -> None:
+        self.start()
+        self.h.finish(state=bp.CANCELLED, error="cancelled by operator")
+        self.assertEqual(self.h.run()["status"], "cancelled")
+        self.assertIsNone(self.h.active())
+        self.assertEqual(len(self.h.bridge.tasks()), 1)
+
+    def test_cancel_while_waiting_for_approval(self) -> None:
+        self.start()
+        self.advance_to("artifact_check")
+        self.h.finish()
+        self.h.engine.request_cancel("run-1", "stop release")
+        self.assertEqual(self.h.run()["status"], "cancelled")
+        self.assertEqual(self.h.repo.gates("run-1")[0]["status"], "revoked")
+
+
+class QuotaTests(EngineCase):
+    def test_quota_waits_for_due_time_then_blocks_after_bounded_rechecks(self) -> None:
+        self.start()
+        self.h.finish(state=bp.FAILED, error="provider quota exceeded (429)")
+        run = self.h.run()
+        self.assertEqual(run["status"], "quota_wait")
+        self.assertEqual(run["due_at"], self.clock.now + 60)
+        for _ in range(5):
+            self.h.tick()
+        self.assertEqual(len(self.h.bridge.tasks()), 1)   # no tight retry loop
+        for backoff in (60, 300, 900):
+            self.clock.advance(backoff)
+            self.h.restart().tick()
+            self.assertEqual(self.h.run()["status"], "running")
+            self.h.finish(state=bp.FAILED, error="rate limit")
+        self.assertEqual(self.h.run()["status"], "blocked")
+        self.assertIn("quota still exhausted", self.h.run()["status_reason"])
+        self.assertEqual(len(self.h.bridge.tasks()), 4)
+
+
+class ApprovalTests(EngineCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.start()
+        self.advance_to("artifact_check")
+        self.h.finish()
+
+    def test_publication_is_not_submitted_until_scoped_approval(self) -> None:
+        self.assertEqual(self.h.run()["status"], "waiting_approval")
+        for _ in range(3):
+            self.h.tick()
+        self.assertNotIn("publication", self.nodes_submitted())
+        gate = self.h.gate()
+        self.assertEqual(gate["scope"], f"publish:{D('3')}")
+        with self.assertRaises(ApprovalError):
+            self.h.engine.approve(gate["gate_id"], "owner", f"publish:{D('9')}")
+        self.assertNotIn("publication", self.nodes_submitted())
+        self.h.engine.approve(gate["gate_id"], "owner", gate["scope"])
+        self.h.tick()
+        self.assertEqual(self.h.active()["node"], "publication")
+        self.assertEqual(self.nodes_submitted().count("publication"), 1)
+        with self.assertRaises(ApprovalError):
+            self.h.engine.approve(gate["gate_id"], "owner", gate["scope"])
+
+    def test_rejection_blocks_visibly(self) -> None:
+        gate = self.h.gate()
+        self.h.engine.reject(gate["gate_id"], "owner", "not this week")
+        self.assertEqual(self.h.run()["status"], "blocked")
+        self.assertIn("not this week", self.h.run()["status_reason"])
+
+    def test_revocation_after_approval_cancels_publication(self) -> None:
+        gate = self.h.gate()
+        self.h.engine.approve(gate["gate_id"], "owner", gate["scope"])
+        self.h.tick()
+        task_id = self.h.active()["task_id"]
+        self.h.engine.revoke(gate["gate_id"], "owner", "wrong target")
+        self.h.tick()
+        self.assertEqual(self.h.run()["status"], "blocked")
+        self.assertEqual(self.h.bridge.calls("cancel"), [task_id])
+
+    def test_bridge_needs_approval_parks_and_resumes(self) -> None:
+        gate = self.h.gate()
+        self.h.engine.approve(gate["gate_id"], "owner", gate["scope"])
+        self.h.tick()
+        self.h.finish(state=bp.NEEDS_APPROVAL, ev={})
+        self.assertEqual(self.h.run()["status"], "waiting_approval")
+        parked = self.h.gate()
+        self.h.engine.approve(parked["gate_id"], "owner", parked["scope"])
+        self.h.tick()
+        self.assertEqual(self.h.active()["attempt_no"], 2)
+        self.h.finish()
+        self.assertEqual(self.h.active()["node"], "delivery")
+
+
+class ApprovalExpiryTests(EngineCase):
+    policy = Policy(approval_ttl_seconds=600)
+
+    def test_expired_approval_blocks(self) -> None:
+        self.start()
+        self.advance_to("artifact_check")
+        self.h.finish()
+        gate = self.h.gate()
+        self.clock.advance(601)
+        with self.assertRaisesRegex(ApprovalError, "expired"):
+            self.h.engine.approve(gate["gate_id"], "owner", gate["scope"])
+        self.assertEqual(self.h.run()["status"], "blocked")
+        self.assertNotIn("publication", self.nodes_submitted())
