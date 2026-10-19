@@ -7,6 +7,7 @@ import {
   AlertOctagon,
   UserCheck,
   Moon,
+  Bug,
 } from 'lucide-react';
 
 interface StatusBadgeProps {
@@ -83,6 +84,17 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
       icon: UserCheck,
       indicator: (
         <span className="w-1.5 h-1.5 rounded-full bg-purple-400 ml-1 animate-beacon" />
+      ),
+    },
+    defect: {
+      label: 'Defect',
+      bg: 'bg-orange-950/80',
+      border: 'border-orange-500/50',
+      text: 'text-orange-300',
+      glow: 'shadow-[0_0_12px_rgba(249,115,22,0.3)]',
+      icon: Bug,
+      indicator: (
+        <span className="w-1.5 h-1.5 rounded-full bg-orange-400 ml-1 animate-pulse" />
       ),
     },
     idle: {

@@ -4,6 +4,7 @@ export type AgentStatus =
   | 'review'
   | 'blocked'
   | 'awaiting_human'
+  | 'defect'
   | 'idle';
 
 export interface TaskSnapshot {
@@ -32,6 +33,35 @@ export interface ActivityEvent {
   details?: Record<string, unknown> | null;
 }
 
+/** One workflow node projected onto a workstation (server: workstation_assignments). */
+export interface WorkflowAssignment {
+  workstation: string;
+  assignment: 'performer' | 'approver';
+  status: AgentStatus;
+  run_id: string;
+  run_status: string;
+  status_reason?: string | null;
+  definition_name: string;
+  title: string;
+  node: string;
+  role: string;
+  current_task: string;
+  attempt_id: string | null;
+  attempt_status: string | null;
+  iteration: number;
+  task_id: string | null;
+  gate_id: string | null;
+  updated_at: number;
+}
+
+/** Process Studio deep link requested from Tycoon View. */
+export interface StudioFocus {
+  runId: string;
+  node: string | null;
+  source?: string;
+  nonce: number;
+}
+
 export interface Agent {
   id: string;
   profile_name: string;
@@ -49,6 +79,12 @@ export interface Agent {
   active_task?: TaskSnapshot | null;
   recent_activities?: ActivityEvent[];
   last_tool_call?: ActivityEvent | null;
+  current_task?: string | null;
+  active_task_id?: string | null;
+  workflow_run_id?: string | null;
+  workflow_node?: string | null;
+  workflow_assignment?: WorkflowAssignment | null;
+  workflow_assignments?: WorkflowAssignment[];
 }
 
 export interface OfficeState {
@@ -63,5 +99,7 @@ export interface OfficeState {
     total_agents: number;
     total_tasks: number;
     total_activities: number;
+    workflow_projection?: 'ok' | 'disabled' | 'error';
+    workflow_assignments?: number;
   };
 }
