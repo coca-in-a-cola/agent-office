@@ -16,7 +16,7 @@ from dataclasses import dataclass
 import threading
 from typing import Any, Mapping
 
-from .bridge_port import BridgePort, BridgeTransportError
+from .bridge_port import QUEUED, BridgePort, BridgeTransportError
 from .definitions import Outcome
 from .engine import TaskEvent, WorkflowEngine, event_from_status
 
@@ -130,7 +130,10 @@ class Coordinator:
                               Outcome.FAILURE, reason="task missing in Bridge")
         else:
             event = event_from_status(attempt, status)
-        if event is None and attempt["deadline_at"] is not None \
+        # Queue wait belongs to Bridge admission, not to the executor budget:
+        # never time out (and resubmit) a task Bridge has not started yet.
+        started = status is not None and status.state != QUEUED
+        if event is None and started and attempt["deadline_at"] is not None \
                 and self.engine.clock() > attempt["deadline_at"]:
             event = TaskEvent(f"deadline:{attempt['attempt_id']}", attempt["attempt_id"],
                               attempt["task_id"], Outcome.TIMEOUT,

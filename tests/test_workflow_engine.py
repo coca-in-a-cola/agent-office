@@ -600,6 +600,14 @@ class TimeoutTests(EngineCase):
         self.assertIn("never retried automatically", run["status_reason"])
         self.assertEqual(self.nodes_submitted().count("publication"), 1)
 
+    def test_task_still_queued_in_bridge_admission_is_not_timed_out(self) -> None:
+        attempt = self.h.active()
+        self.clock.advance(7200)
+        self.h.tick()
+        self.assertEqual(self.h.repo.get_attempt(attempt["attempt_id"])["status"],
+                         "submitted")
+        self.assertEqual(self.h.bridge.calls("cancel"), [])
+
     def test_bridge_reported_timeout_routes_to_inspection(self) -> None:
         self.h.finish(state=bp.FAILED, error="Task timed out after 3600s")
         self.assertEqual(self.h.active()["attempt_no"], 2)
