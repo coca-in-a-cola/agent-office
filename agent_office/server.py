@@ -20,9 +20,15 @@ import sys
 import threading
 import time
 from typing import Any, Callable, Dict, List, Optional, Union
-from urllib.parse import unquote
+from urllib.parse import parse_qs, unquote
 
-from .storage import OfficeStorage, apply_workflow_projection, get_default_storage
+from .storage import (
+    OfficeStorage,
+    TaskBridgeReader,
+    apply_bridge_projection,
+    apply_workflow_projection,
+    get_default_storage,
+)
 from .workflow.service import WorkflowApiError, WorkflowService
 
 logger = logging.getLogger("agent_office.server")
@@ -30,6 +36,17 @@ logger = logging.getLogger("agent_office.server")
 MAX_JSON_BODY = 1024 * 1024
 WORKFLOW_PREFIX = "/api/workflow"
 RUN_COMMANDS = ("pause", "resume", "cancel", "approve", "retry")
+MONITOR_TAIL_LINES = 100
+MONITOR_TAIL_MAX = 1000
+
+
+class ApiError(Exception):
+    """Non-workflow API failure carrying an HTTP status."""
+
+    def __init__(self, status: int, message: str) -> None:
+        super().__init__(message)
+        self.status = status
+        self.message = message
 
 # Standard workstation profiles for the isometric office layout
 DEFAULT_WORKSTATIONS: list[dict[str, Any]] = [
@@ -140,13 +157,16 @@ def get_default_static_dir() -> Path:
 def get_office_state(
     storage: Optional[OfficeStorage] = None,
     workflow: Optional[WorkflowService] = None,
+    bridge: Optional[TaskBridgeReader] = None,
 ) -> dict[str, Any]:
     """Retrieve full office state with fail-open fallback.
 
     Merges persisted agent entities with standard workstation profiles,
     attaches active task snapshots and recent activity logs, then projects
     live Workflow Core runs (node attempts, Bridge task ids, approval gates)
-    onto the workstation that performs each node.
+    onto the workstation that performs each node. When a Task Bridge reader
+    is configured, running Bridge tasks are reflected on the workstation
+    they belong to (workflow assignments keep precedence).
     """
     store = storage if storage is not None else get_default_storage()
     now = time.time()
@@ -239,6 +259,19 @@ def get_office_state(
             projection = "error"
     apply_workflow_projection(agent_map, assignments)
 
+    # Ingest Task Bridge worker tasks directly (read-only)
+    bridge_ingestion = "disabled"
+    bridge_tasks: list[dict[str, Any]] = []
+    bridge_active = 0
+    if bridge is not None:
+        try:
+            bridge_tasks = bridge.list_tasks(limit=50)
+            bridge_ingestion = "ok"
+        except Exception as exc:
+            logger.warning("Failed to read Task Bridge tasks (fail-open): %s", exc)
+            bridge_ingestion = "error"
+    bridge_active = apply_bridge_projection(agent_map, bridge_tasks)
+
     agents_list = list(agent_map.values())
     # Sort with Tyler first, then by profile_name
     def sort_key(a: dict[str, Any]) -> tuple[int, str]:
@@ -261,7 +294,114 @@ def get_office_state(
             "total_activities": len(stored_activities),
             "workflow_projection": projection,
             "workflow_assignments": len(assignments),
+            "bridge_ingestion": bridge_ingestion,
+            "bridge_tasks": len(bridge_tasks),
+            "bridge_active_tasks": bridge_active,
         },
+    }
+
+
+def _activity_line(act: dict[str, Any]) -> str:
+    ts = act.get("timestamp")
+    stamp = time.strftime("%H:%M:%S", time.localtime(ts)) if isinstance(ts, (int, float)) else "--:--:--"
+    parts = [str(act.get("event_type") or "event")]
+    if act.get("tool_name"):
+        parts.append(str(act["tool_name"]))
+    if act.get("status"):
+        parts.append(f"[{act['status']}]")
+    preview = act.get("tool_output_preview") or act.get("tool_input_preview")
+    if preview:
+        parts.append(str(preview).replace("\n", " ")[:200])
+    return f"[{stamp}] " + " ".join(parts)
+
+
+def get_agent_monitor(
+    agent_id: str,
+    storage: Optional[OfficeStorage] = None,
+    workflow: Optional[WorkflowService] = None,
+    bridge: Optional[TaskBridgeReader] = None,
+    tail: int = MONITOR_TAIL_LINES,
+) -> dict[str, Any]:
+    """Workstation Monitor: what an agent is doing right now, as a terminal tail.
+
+    Source precedence: the agent's active Task Bridge task (workflow attempt
+    or direct Bridge ingestion), then its most recent Bridge task, then the
+    agent's own activity events. Raises ApiError(404) for unknown agents.
+    """
+    state = get_office_state(storage, workflow, bridge)
+    wanted = agent_id.lower()
+    agent = next((a for a in state["agents"] if str(a.get("id") or "").lower() == wanted), None)
+    if agent is None:
+        raise ApiError(HTTPStatus.NOT_FOUND, f"unknown agent {agent_id!r}")
+
+    task: Optional[dict[str, Any]] = None
+    is_active = False
+    active_id = agent.get("active_task_id")
+    if bridge is not None:
+        try:
+            if active_id:
+                task = bridge.get_task(str(active_id))
+                is_active = task is not None
+            if task is None and agent.get("bridge_tasks"):
+                task = agent["bridge_tasks"][0]
+        except Exception as exc:
+            logger.warning("Monitor could not read Task Bridge (fail-open): %s", exc)
+            task = None
+
+    stdout_tail: list[str] = []
+    stderr_tail: list[str] = []
+    activity: list[str] = []
+    if task is not None and bridge is not None:
+        source = "task_bridge"
+        stdout_tail = bridge.tail_log(task, "stdout", tail)
+        stderr_tail = bridge.tail_log(task, "stderr", tail)
+    else:
+        events: list[dict[str, Any]] = []
+        store = storage if storage is not None else get_default_storage()
+        try:
+            events = store.list_activity_events(agent_id=str(agent.get("id")), limit=tail)
+        except Exception as exc:
+            logger.warning("Monitor could not read activity events (fail-open): %s", exc)
+        activity = [_activity_line(e) for e in reversed(events)]
+        source = "activity" if activity else "idle"
+
+    return {
+        "status": "ok",
+        "timestamp": time.time(),
+        "agent": {
+            key: agent.get(key)
+            for key in ("id", "profile_name", "role", "status", "current_model", "current_task",
+                        "active_task_id", "workflow_run_id", "workflow_node")
+        },
+        "source": source,
+        "task": task,
+        "is_active": is_active,
+        "is_live": bool(task and task.get("is_live")),
+        "tail_lines": tail,
+        "stdout_tail": stdout_tail,
+        "stderr_tail": stderr_tail,
+        "activity": activity,
+    }
+
+
+def get_task_log(task_id: str, bridge: Optional[TaskBridgeReader]) -> dict[str, Any]:
+    """Task Bridge drill-down: raw stdout/stderr, artifacts and execution status."""
+    if bridge is None:
+        raise ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "task bridge is not configured")
+    try:
+        task = bridge.get_task(task_id)
+    except Exception as exc:
+        raise ApiError(HTTPStatus.SERVICE_UNAVAILABLE, f"task bridge unavailable: {exc}")
+    if task is None:
+        raise ApiError(HTTPStatus.NOT_FOUND, f"unknown task {task_id!r}")
+    return {
+        "status": "ok",
+        "timestamp": time.time(),
+        "task": task,
+        "is_live": bool(task.get("is_live")),
+        "stdout": bridge.read_log(task, "stdout"),
+        "stderr": bridge.read_log(task, "stderr"),
+        "artifacts": bridge.list_artifacts(task),
     }
 
 
@@ -276,10 +416,12 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
         storage: Optional[OfficeStorage] = None,
         static_dir: Optional[Union[str, Path]] = None,
         workflow: Optional[WorkflowService] = None,
+        bridge: Optional[TaskBridgeReader] = None,
         **kwargs: Any,
     ) -> None:
         self.storage = storage
         self.workflow = workflow
+        self.bridge = bridge
         self.static_dir = Path(static_dir) if static_dir is not None else get_default_static_dir()
         super().__init__(*args, directory=str(self.static_dir), **kwargs)
 
@@ -316,6 +458,19 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
         # Route: Process Studio workflow API
         if self.is_workflow_path(parsed_path):
             self.handle_workflow("GET", parsed_path)
+            return
+
+        # Route: Workstation Monitor and Task Bridge drill-down
+        parts = [unquote(p) for p in parsed_path.split("/") if p]
+        if len(parts) == 4 and parts[:2] == ["api", "agents"] and parts[3] == "monitor":
+            self.handle_api_call(lambda: get_agent_monitor(
+                parts[2], self.storage, self.workflow, self.bridge, self.query_tail()))
+            return
+        if len(parts) == 4 and parts[:2] == ["api", "tasks"] and parts[3] == "log":
+            self.handle_api_call(lambda: get_task_log(parts[2], self.bridge))
+            return
+        if parts[:1] == ["api"]:
+            self.send_json(HTTPStatus.NOT_FOUND, {"status": "error", "message": "not found"})
             return
 
         # Route: Static web assets & SPA fallback
@@ -400,10 +555,28 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
             self.send_json(HTTPStatus.INTERNAL_SERVER_ERROR,
                            {"status": "error", "message": f"internal error: {exc}"})
 
+    def query_tail(self) -> int:
+        query = parse_qs(self.path.split("?", 1)[1]) if "?" in self.path else {}
+        try:
+            tail = int(query.get("tail", [MONITOR_TAIL_LINES])[0])
+        except ValueError:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "tail must be an integer")
+        return max(0, min(tail, MONITOR_TAIL_MAX))
+
+    def handle_api_call(self, producer: Callable[[], Any]) -> None:
+        try:
+            self.send_json(HTTPStatus.OK, producer())
+        except ApiError as exc:
+            self.send_json(exc.status, {"status": "error", "message": exc.message})
+        except Exception as exc:
+            logger.exception("API error on %s", self.path)
+            self.send_json(HTTPStatus.INTERNAL_SERVER_ERROR,
+                           {"status": "error", "message": f"internal error: {exc}"})
+
     def handle_api_state(self) -> None:
         """Serialize and serve current agent office state as JSON."""
         try:
-            state = get_office_state(self.storage, self.workflow)
+            state = get_office_state(self.storage, self.workflow, self.bridge)
             payload = json.dumps(state, ensure_ascii=False, indent=2).encode("utf-8")
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -622,6 +795,7 @@ def create_server(
     storage: Optional[OfficeStorage] = None,
     static_dir: Optional[Union[str, Path]] = None,
     workflow: Optional[WorkflowService] = None,
+    bridge: Optional[TaskBridgeReader] = None,
 ) -> ThreadingHTTPServer:
     """Instantiate and configure ThreadingHTTPServer with OfficeRequestHandler.
 
@@ -632,7 +806,7 @@ def create_server(
 
     def handler_factory(*args: Any, **kwargs: Any) -> OfficeRequestHandler:
         return OfficeRequestHandler(*args, storage=target_storage, static_dir=target_static,
-                                    workflow=workflow, **kwargs)
+                                    workflow=workflow, bridge=bridge, **kwargs)
 
     return ThreadingHTTPServer((host, port), handler_factory)
 
@@ -643,10 +817,11 @@ def run_server(
     storage: Optional[OfficeStorage] = None,
     static_dir: Optional[Union[str, Path]] = None,
     workflow: Optional[WorkflowService] = None,
+    bridge: Optional[TaskBridgeReader] = None,
 ) -> None:
     """Run HTTP server until interrupted."""
     server = create_server(host=host, port=port, storage=storage, static_dir=static_dir,
-                           workflow=workflow)
+                           workflow=workflow, bridge=bridge)
     logger.info("Agent Office server running at http://%s:%d", host, port)
     try:
         server.serve_forever()
@@ -693,6 +868,9 @@ def main() -> None:
                         help="Workflow Core SQLite path (default: next to the office DB)")
     parser.add_argument("--task-bridge-db", default=None,
                         help="Real Task Bridge tasks.db (requires task_bridge on sys.path)")
+    parser.add_argument("--task-bridge-artifacts-dir", default=None,
+                        help="Task Bridge artifacts dir holding <task_id>/stdout.log "
+                             "(default: Bridge's own default location)")
     parser.add_argument("--fake-bridge-db", default=None,
                         help="FakeBridge SQLite path when no Task Bridge is given")
     parser.add_argument("--coordinator-interval", type=float, default=5.0,
@@ -714,8 +892,13 @@ def main() -> None:
         if args.coordinator_interval > 0:
             workflow.start(args.coordinator_interval)
         logger.info("Workflow Core at %s (bridge=%s)", workflow_db, workflow.bridge_kind)
+    bridge = None
+    if args.task_bridge_db:
+        bridge = TaskBridgeReader(args.task_bridge_db, args.task_bridge_artifacts_dir)
+        logger.info("Task Bridge ingestion from %s (logs under %s)", bridge.db_path,
+                    bridge.artifacts_dir)
     run_server(host=args.host, port=args.port, storage=storage, static_dir=args.static_dir,
-               workflow=workflow)
+               workflow=workflow, bridge=bridge)
 
 
 if __name__ == "__main__":

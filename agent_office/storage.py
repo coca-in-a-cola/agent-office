@@ -6,11 +6,14 @@ with strict Fail-Open resilience to ensure database errors never disrupt agent t
 
 from __future__ import annotations
 
+from contextlib import closing
+from datetime import datetime, timezone
 import functools
 import json
 import logging
 import os
 from pathlib import Path
+import re
 import sqlite3
 import threading
 import time
@@ -145,6 +148,304 @@ def apply_workflow_projection(
         agent["active_task_id"] = primary["task_id"]
         agent["workflow_run_id"] = primary["run_id"]
         agent["workflow_node"] = primary["node"]
+
+
+# --- Task Bridge worker ingestion (read-only) ---
+
+BRIDGE_ACTIVE_STATES = ("running",)
+BRIDGE_LOG_NAMES = {"stdout": "stdout.log", "stderr": "stderr.log"}
+BRIDGE_LOG_MAX_BYTES = 512 * 1024
+BRIDGE_TAIL_MAX_BYTES = 256 * 1024
+
+# Explicit tags ("workstation: webdev", "[godot]") map onto these desks.
+BRIDGE_WORKSTATION_ALIASES: Dict[str, Tuple[str, ...]] = {
+    "webdev": ("webdev", "web", "frontend", "web_engineer"),
+    "coder": ("coder", "godot", "gamedev", "game_developer"),
+    "devops": ("devops", "ops", "infra"),
+    "qa": ("qa", "tester", "quality"),
+    "artist": ("artist", "art"),
+    "tyler": ("tyler", "manager", "director"),
+}
+
+# Keyword evidence used when a task carries no explicit tag.
+BRIDGE_WORKSTATION_KEYWORDS: Dict[str, Tuple[str, ...]] = {
+    "webdev": ("webdev", "react", "typescript", "tsx", "tailwind", "vite", "frontend",
+               "front-end", "web", "css", "html", "browser", "bun", "ui"),
+    "coder": ("godot", "godot4", "gdscript", "gdextension", "shader", "shaders", "physics",
+              "tscn", "game", "gameplay"),
+    "devops": ("devops", "docker", "kubernetes", "deploy", "deployment", "infra",
+               "infrastructure", "systemd", "nginx", "pipeline", "observability", "ci"),
+    "qa": ("qa", "regression", "verification", "audit", "playtest", "e2e"),
+    "artist": ("artist", "art", "concept", "blender", "mesh", "rigging", "sprite",
+               "texture", "textures", "glb", "hunyuan", "tripo"),
+    "tyler": ("planning", "strategy", "roadmap", "coordination"),
+}
+
+_BRIDGE_TAG_RE = re.compile(
+    r"(?:\b(?:workstation|role|desk|assignee|agent)\s*[:=]\s*|\[)([a-z_][a-z0-9_-]*)\]?")
+_WORD_RE = re.compile(r"[a-z0-9_+#-]+")
+
+
+def resolve_bridge_workstation(task: Dict[str, Any], default: str = "tyler") -> str:
+    """Pick the workstation for a Task Bridge task.
+
+    Precedence: explicit tag (``workstation: webdev`` / ``[godot]``) in the
+    title, goal or project id; then the execution model (3D generators go to
+    Artist); then keyword evidence weighted towards the title. Tasks with no
+    evidence land on ``default`` (the managing director's desk).
+    """
+    title = str(task.get("title") or "").lower()
+    goal = str(task.get("goal") or "")[:4000].lower()
+    project = str(task.get("project_id") or "").lower()
+    alias_to_desk = {alias: desk for desk, aliases in BRIDGE_WORKSTATION_ALIASES.items()
+                     for alias in aliases}
+
+    for text in (project, title, goal):
+        for match in _BRIDGE_TAG_RE.finditer(text):
+            desk = alias_to_desk.get(match.group(1).replace("-", "_"))
+            if desk:
+                return desk
+    if project.replace("-", "_") in alias_to_desk:
+        return alias_to_desk[project.replace("-", "_")]
+
+    model = str(task.get("model") or "").lower()
+    if any(k in model for k in ("tripo", "hunyuan", "meshy")):
+        return "artist"
+
+    title_words = set(_WORD_RE.findall(title))
+    goal_words = set(_WORD_RE.findall(goal))
+    scores: Dict[str, int] = {}
+    for desk, keywords in BRIDGE_WORKSTATION_KEYWORDS.items():
+        score = sum(3 for k in keywords if k in title_words)
+        score += sum(1 for k in keywords if k in goal_words)
+        if score:
+            scores[desk] = score
+    if not scores:
+        return default
+    return max(scores.items(), key=lambda kv: kv[1])[0]
+
+
+def _parse_bridge_time(value: Any) -> Optional[float]:
+    """Task Bridge stores naive UTC ISO timestamps; return epoch seconds."""
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.timestamp()
+
+
+def _pid_alive(pid: Any) -> bool:
+    try:
+        os.kill(int(pid), 0)
+    except PermissionError:
+        return True
+    except (OSError, ValueError, TypeError, OverflowError):
+        return False
+    return True
+
+
+def _read_tail_bytes(path: Path, max_bytes: int) -> Tuple[str, bool]:
+    """Return (text, truncated) for the last ``max_bytes`` of a file."""
+    size = path.stat().st_size
+    with path.open("rb") as fh:
+        if size > max_bytes:
+            fh.seek(size - max_bytes)
+        data = fh.read(max_bytes)
+    text = data.decode("utf-8", errors="replace")
+    if size > max_bytes:
+        # Drop the partial first line after seeking into the middle of the file.
+        text = text.split("\n", 1)[1] if "\n" in text else text
+    return text, size > max_bytes
+
+
+class TaskBridgeReader:
+    """Read-only view over a Task Bridge ``tasks.db`` and its log artifacts.
+
+    Agent Office never writes to Bridge: it opens the database with
+    ``mode=ro`` and only reads ``stdout.log`` / ``stderr.log`` files the
+    task points at (its artifacts list, its artifacts dir or working dir).
+    """
+
+    def __init__(
+        self,
+        db_path: Union[str, Path],
+        artifacts_dir: Optional[Union[str, Path]] = None,
+    ) -> None:
+        self.db_path = Path(db_path)
+        if artifacts_dir is not None:
+            self.artifacts_dir: Optional[Path] = Path(artifacts_dir)
+        elif os.environ.get("TASK_BRIDGE_ARTIFACTS_DIR"):
+            self.artifacts_dir = Path(os.environ["TASK_BRIDGE_ARTIFACTS_DIR"])
+        elif os.environ.get("XDG_STATE_HOME"):
+            self.artifacts_dir = Path(os.environ["XDG_STATE_HOME"]) / "task-bridge" / "artifacts"
+        else:
+            self.artifacts_dir = Path.home() / ".local" / "state" / "task-bridge" / "artifacts"
+
+    def _connect(self) -> sqlite3.Connection:
+        if not self.db_path.is_file():
+            raise FileNotFoundError(f"Task Bridge database not found: {self.db_path}")
+        conn = sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True, timeout=5.0)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def _summarize(self, row: sqlite3.Row, now: Optional[float] = None) -> Dict[str, Any]:
+        data = dict(row)
+        now = time.time() if now is None else now
+        try:
+            artifacts = [str(a) for a in json.loads(data.get("artifacts") or "[]")]
+        except (TypeError, ValueError):
+            artifacts = []
+        started = _parse_bridge_time(data.get("started_at"))
+        completed = _parse_bridge_time(data.get("completed_at"))
+        state = str(data.get("state") or "")
+        pid = data.get("pid")
+        if state in BRIDGE_ACTIVE_STATES:
+            # Without a recorded pid the Bridge state is the best evidence we have.
+            is_live = _pid_alive(pid) if pid else True
+        else:
+            is_live = False
+        summary = {
+            "task_id": data.get("id"),
+            "title": data.get("title") or "",
+            "goal": data.get("goal") or "",
+            "state": state,
+            "executor": data.get("executor") or "",
+            "model": data.get("actual_model") or data.get("model_used")
+            or data.get("requested_model") or "",
+            "requested_model": data.get("requested_model") or "",
+            "repo": data.get("repo") or "",
+            "working_dir": data.get("working_dir") or "",
+            "project_id": data.get("project_id"),
+            "complexity": data.get("complexity") or "",
+            "progress_summary": data.get("progress_summary") or "",
+            "error": data.get("error") or "",
+            "exit_code": data.get("exit_code"),
+            "git_sha": data.get("git_sha"),
+            "pid": pid,
+            "artifacts": artifacts,
+            "created_at": _parse_bridge_time(data.get("created_at")),
+            "updated_at": _parse_bridge_time(data.get("updated_at")),
+            "started_at": started,
+            "completed_at": completed,
+            "duration_seconds": (
+                max(0.0, (completed or now) - started) if started is not None else None),
+            "is_live": is_live,
+        }
+        summary["workstation"] = resolve_bridge_workstation(summary)
+        summary.pop("goal")
+        return summary
+
+    def list_tasks(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Running tasks first, then the most recently updated ones."""
+        with closing(self._connect()) as conn:
+            rows = conn.execute(
+                "SELECT * FROM tasks ORDER BY (state = 'running') DESC, updated_at DESC LIMIT ?",
+                (limit,)).fetchall()
+        now = time.time()
+        return [self._summarize(r, now) for r in rows]
+
+    def get_task(self, task_id: str) -> Optional[Dict[str, Any]]:
+        with closing(self._connect()) as conn:
+            row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        return None if row is None else self._summarize(row)
+
+    def log_path(self, task: Dict[str, Any], stream: str) -> Optional[Path]:
+        """Locate ``stdout.log``/``stderr.log`` for a task, or None."""
+        name = BRIDGE_LOG_NAMES[stream]
+        candidates = [Path(a) for a in task.get("artifacts") or [] if Path(a).name == name]
+        if self.artifacts_dir is not None and task.get("task_id"):
+            candidates.append(self.artifacts_dir / str(task["task_id"]) / name)
+        if task.get("working_dir"):
+            candidates.append(Path(str(task["working_dir"])) / name)
+        for path in candidates:
+            if path.is_file():
+                return path
+        return None
+
+    def tail_log(self, task: Dict[str, Any], stream: str, lines: int = 100) -> List[str]:
+        path = self.log_path(task, stream)
+        if path is None:
+            return []
+        try:
+            text, _ = _read_tail_bytes(path, BRIDGE_TAIL_MAX_BYTES)
+        except OSError:
+            return []
+        return text.splitlines()[-lines:] if lines > 0 else []
+
+    def read_log(self, task: Dict[str, Any], stream: str) -> Dict[str, Any]:
+        path = self.log_path(task, stream)
+        result: Dict[str, Any] = {"path": str(path) if path else None, "text": "",
+                                  "size_bytes": 0, "truncated": False}
+        if path is None:
+            return result
+        try:
+            result["size_bytes"] = path.stat().st_size
+            result["text"], result["truncated"] = _read_tail_bytes(path, BRIDGE_LOG_MAX_BYTES)
+        except OSError as exc:
+            result["error"] = str(exc)
+        return result
+
+    def list_artifacts(self, task: Dict[str, Any]) -> List[Dict[str, Any]]:
+        paths: List[Path] = [Path(a) for a in task.get("artifacts") or []]
+        if self.artifacts_dir is not None and task.get("task_id"):
+            task_dir = self.artifacts_dir / str(task["task_id"])
+            if task_dir.is_dir():
+                paths.extend(sorted(p for p in task_dir.iterdir() if p.is_file()))
+        seen: set = set()
+        result = []
+        for path in paths:
+            key = str(path)
+            if key in seen:
+                continue
+            seen.add(key)
+            exists = path.is_file()
+            result.append({"path": key, "name": path.name, "exists": exists,
+                           "size_bytes": path.stat().st_size if exists else None})
+        return result
+
+
+def apply_bridge_projection(
+    agent_map: Dict[str, Dict[str, Any]],
+    tasks: List[Dict[str, Any]],
+    recent_per_agent: int = 5,
+) -> int:
+    """Reflect Task Bridge tasks onto office workstations in place.
+
+    `tasks` come from TaskBridgeReader.list_tasks() (running first). Each
+    agent gets ``bridge_tasks`` (its most recent tasks). The first running
+    task becomes the agent's active one (``status: working``) unless a
+    workflow assignment already owns the workstation; tasks that a workflow
+    attempt already projected are skipped. Returns the active task count.
+    """
+    workflow_task_ids = {
+        str(a.get("task_id"))
+        for agent in agent_map.values()
+        for a in agent.get("workflow_assignments") or []
+        if a.get("task_id")
+    }
+    by_desk: Dict[str, List[Dict[str, Any]]] = {}
+    for task in tasks:
+        by_desk.setdefault(str(task.get("workstation") or "").lower(), []).append(task)
+
+    active = 0
+    for aid, agent in agent_map.items():
+        mine = by_desk.get(aid, [])
+        agent["bridge_tasks"] = mine[:recent_per_agent]
+        running = [t for t in mine if t.get("state") in BRIDGE_ACTIVE_STATES
+                   and str(t.get("task_id")) not in workflow_task_ids]
+        agent["bridge_task"] = running[0] if running else None
+        if not running or agent.get("workflow_assignment"):
+            continue
+        task = running[0]
+        agent["status"] = "working"
+        agent["active_task_id"] = task["task_id"]
+        agent["current_task"] = task["title"]
+        active += 1
+    return active
 
 
 class Migration:
