@@ -45,6 +45,19 @@ NODE_STATE = {
     "awaiting_approval": "approval_wait",
 }
 
+# Tycoon View: office workstation that performs each workflow node role.
+# Unknown roles project onto a workstation named after the role itself.
+ROLE_WORKSTATIONS = {
+    "implementer": "coder",
+    "independent_reviewer": "qa",
+    "builder": "devops",
+    "artifact_checker": "qa",
+    "publisher": "devops",
+    "owner_liaison": "tyler",
+}
+# Approval gates are decided by the managing director's desk.
+APPROVER_WORKSTATION = "tyler"
+
 
 class WorkflowApiError(Exception):
     """Client-visible error carrying an HTTP status code."""
@@ -299,6 +312,67 @@ class WorkflowService:
             },
             "bridge": self.bridge_kind,
         }
+
+    # -- Tycoon View projection ------------------------------------------------
+    def workstation_assignments(self) -> list[dict[str, Any]]:
+        """Project live runs onto office workstations, most recently updated first.
+
+        Derived only from persisted runs, node attempts (with their Bridge task
+        ids) and approval gates. Terminal runs project nothing, so a desk with
+        no live run stays idle.
+        """
+        with self.lock:
+            items = []
+            for run in self.repo.list_runs():
+                if run["status"] in TERMINAL_RUN_STATUSES or not run["current_node"]:
+                    continue
+                items.extend(self._run_assignments(run))
+        items.sort(key=lambda a: (-a["updated_at"], a["run_id"]))
+        return items
+
+    def _run_assignments(self, run: Mapping[str, Any]) -> list[dict[str, Any]]:
+        definition = self.engine.definition_for(run)
+        node = definition.node(run["current_node"])
+        attempts = self.repo.attempts(run["run_id"], node.name)
+        last = attempts[-1] if attempts else None
+        status = run["status"]
+        if status in ("running", "cancelling"):
+            desk_status = "working"
+        elif status == "waiting_approval":
+            desk_status = "review"
+        elif status == "blocked" and last is not None and last["status"] == "defect":
+            desk_status = "defect"
+        else:  # blocked, inspecting (timeout), quota_wait
+            desk_status = "blocked"
+        gate = next((g for g in reversed(self.repo.gates(run["run_id"]))
+                     if g["status"] == "pending" and g["node"] == node.name), None)
+        inputs = _json(run["inputs_json"]) or {}
+        title = str(inputs.get("title") or inputs.get("goal") or run["run_id"]).strip()
+        if len(title) > 60:
+            title = title[:59] + "…"
+        base = {
+            "status": desk_status,
+            "run_id": run["run_id"],
+            "run_status": status,
+            "status_reason": run["status_reason"],
+            "definition_name": definition.name,
+            "title": title,
+            "node": node.name,
+            "role": node.role,
+            "current_task": f"{title} — {node.name}",
+            "attempt_id": last["attempt_id"] if last else None,
+            "attempt_status": last["status"] if last else None,
+            "iteration": last["iteration"] if last else (gate["iteration"] if gate else 0),
+            "task_id": last["task_id"] if last else None,
+            "gate_id": gate["gate_id"] if gate else None,
+            "updated_at": run["updated_at"],
+        }
+        desk = ROLE_WORKSTATIONS.get(node.role, node.role)
+        items = [dict(base, workstation=desk, assignment="performer")]
+        if desk_status == "review" and desk != APPROVER_WORKSTATION:
+            items.append(dict(base, workstation=APPROVER_WORKSTATION,
+                              assignment="approver"))
+        return items
 
     def _attempt_json(self, row: Mapping[str, Any]) -> dict[str, Any]:
         evidence = _json(row["evidence_json"])

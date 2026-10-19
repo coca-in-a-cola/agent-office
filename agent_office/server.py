@@ -22,7 +22,7 @@ import time
 from typing import Any, Callable, Dict, List, Optional, Union
 from urllib.parse import unquote
 
-from .storage import OfficeStorage, get_default_storage
+from .storage import OfficeStorage, apply_workflow_projection, get_default_storage
 from .workflow.service import WorkflowApiError, WorkflowService
 
 logger = logging.getLogger("agent_office.server")
@@ -55,7 +55,7 @@ DEFAULT_WORKSTATIONS: list[dict[str, Any]] = [
         "id": "coder",
         "profile_name": "Coder",
         "role": "Coder",
-        "status": "working",
+        "status": "idle",
         "current_model": "anthropic/claude-3-5-sonnet",
         "capabilities": ["python", "typescript", "architecture", "algorithms"],
         "metadata": {"desk": "engineering", "position": [0, 1], "avatar": "coder"},
@@ -73,7 +73,7 @@ DEFAULT_WORKSTATIONS: list[dict[str, Any]] = [
         "id": "qa",
         "profile_name": "QA",
         "role": "QA",
-        "status": "review",
+        "status": "idle",
         "current_model": "anthropic/claude-3-5-sonnet",
         "capabilities": ["testing", "regression", "verification", "security"],
         "metadata": {"desk": "quality", "position": [2, 1], "avatar": "qa"},
@@ -86,6 +86,7 @@ VALID_STATUSES = {
     "review",
     "blocked",
     "awaiting_human",
+    "defect",
     "idle",
 }
 
@@ -101,8 +102,10 @@ def normalize_status(status: Optional[str]) -> str:
         return "researching"
     if s in ("review", "reviewing", "testing", "evaluating"):
         return "review"
-    if s in ("blocked", "error", "failed", "crash"):
+    if s in ("blocked", "error", "failed", "crash", "timed_out", "timeout"):
         return "blocked"
+    if s == "defect":
+        return "defect"
     if s in ("awaiting_human", "human_input", "paused", "waiting_approval", "prompt"):
         return "awaiting_human"
     return "idle"
@@ -124,11 +127,16 @@ def get_default_static_dir() -> Path:
     return candidates[0]
 
 
-def get_office_state(storage: Optional[OfficeStorage] = None) -> dict[str, Any]:
+def get_office_state(
+    storage: Optional[OfficeStorage] = None,
+    workflow: Optional[WorkflowService] = None,
+) -> dict[str, Any]:
     """Retrieve full office state with fail-open fallback.
 
     Merges persisted agent entities with standard workstation profiles,
-    attaches active task snapshots and recent activity logs.
+    attaches active task snapshots and recent activity logs, then projects
+    live Workflow Core runs (node attempts, Bridge task ids, approval gates)
+    onto the workstation that performs each node.
     """
     store = storage if storage is not None else get_default_storage()
     now = time.time()
@@ -209,6 +217,18 @@ def get_office_state(storage: Optional[OfficeStorage] = None) -> dict[str, Any]:
         agent["recent_activities"] = agent_activities[:5]
         agent["last_tool_call"] = agent_activities[0] if agent_activities else None
 
+    # Project workflow runs onto workstations (genuine Workflow Core state)
+    projection = "disabled"
+    assignments: list[dict[str, Any]] = []
+    if workflow is not None:
+        try:
+            assignments = workflow.workstation_assignments()
+            projection = "ok"
+        except Exception as exc:
+            logger.warning("Failed to project workflow runs (fail-open): %s", exc)
+            projection = "error"
+    apply_workflow_projection(agent_map, assignments)
+
     agents_list = list(agent_map.values())
     # Sort with Tyler first, then by profile_name
     def sort_key(a: dict[str, Any]) -> tuple[int, str]:
@@ -229,6 +249,8 @@ def get_office_state(storage: Optional[OfficeStorage] = None) -> dict[str, Any]:
             "total_agents": len(agents_list),
             "total_tasks": len(stored_tasks),
             "total_activities": len(stored_activities),
+            "workflow_projection": projection,
+            "workflow_assignments": len(assignments),
         },
     }
 
@@ -371,7 +393,7 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
     def handle_api_state(self) -> None:
         """Serialize and serve current agent office state as JSON."""
         try:
-            state = get_office_state(self.storage)
+            state = get_office_state(self.storage, self.workflow)
             payload = json.dumps(state, ensure_ascii=False, indent=2).encode("utf-8")
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "application/json; charset=utf-8")

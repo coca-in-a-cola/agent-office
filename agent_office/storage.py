@@ -94,6 +94,59 @@ def _truncate_preview(val: Any, max_length: int = 500) -> Optional[str]:
     return val_str
 
 
+WORKFLOW_AGENT_FIELDS = ("current_task", "active_task_id", "workflow_run_id", "workflow_node")
+
+
+def apply_workflow_projection(
+    agent_map: Dict[str, Dict[str, Any]],
+    assignments: List[Dict[str, Any]],
+) -> None:
+    """Project workflow workstation assignments onto office agents in place.
+
+    `agent_map` is keyed by lower-case agent id. `assignments` come from
+    WorkflowService.workstation_assignments(), most recently updated first;
+    the first assignment per workstation becomes the agent's primary one and
+    overrides its status. Agents without an assignment get empty workflow
+    fields and keep their own status. Unknown workstations are added as
+    minimal agents so no live workflow step is hidden.
+    """
+    by_desk: Dict[str, List[Dict[str, Any]]] = {}
+    for item in assignments:
+        by_desk.setdefault(str(item.get("workstation") or "").lower(), []).append(item)
+    by_desk.pop("", None)
+
+    for desk in by_desk:
+        if desk not in agent_map:
+            agent_map[desk] = {
+                "id": desk,
+                "profile_name": desk.replace("_", " ").title(),
+                "role": desk.replace("_", " ").title(),
+                "status": "idle",
+                "current_model": "unknown",
+                "capabilities": [],
+                "metadata": {},
+                "last_seen_at": time.time(),
+                "active_task": None,
+                "recent_activities": [],
+                "last_tool_call": None,
+            }
+
+    for aid, agent in agent_map.items():
+        mine = by_desk.get(aid, [])
+        primary = mine[0] if mine else None
+        agent["workflow_assignment"] = primary
+        agent["workflow_assignments"] = mine
+        if primary is None:
+            for key in WORKFLOW_AGENT_FIELDS:
+                agent[key] = None
+            continue
+        agent["status"] = primary["status"]
+        agent["current_task"] = primary["current_task"]
+        agent["active_task_id"] = primary["task_id"]
+        agent["workflow_run_id"] = primary["run_id"]
+        agent["workflow_node"] = primary["node"]
+
+
 class Migration:
     """Represents a discrete database schema migration."""
 
