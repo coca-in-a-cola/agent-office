@@ -853,3 +853,137 @@ class FaultInjectionTests(EngineCase):
         self.clock.advance(2)
         self.h.tick()
         self.assertEqual(self.h.run()["status"], "cancelled")
+
+
+class _StubTask:
+    def __init__(self, task_id: str, key: str, state: str = "queued", **kw) -> None:
+        self.id, self.idempotency_key, self.state = task_id, key, state
+        self.error, self.git_sha, self.exit_code = kw.get("error"), None, None
+        self.run_ids, self.artifacts = [], kw.get("artifacts", [])
+
+
+class _StubBridge:
+    """Mimics the public TaskBridge surface the adapter relies on."""
+
+    def __init__(self) -> None:
+        self.tasks: dict[str, _StubTask] = {}
+        self.kwargs: list[dict] = []
+        self.storage = self
+        self.drop_save = False
+        self.explode = False
+
+    def submit_task(self, **kw):
+        if self.explode:
+            raise OSError("bridge db locked")
+        self.kwargs.append(kw)
+        for task in self.tasks.values():
+            if task.idempotency_key == kw["idempotency_key"]:
+                return task.id
+        task_id = f"t{len(self.kwargs)}"
+        if not self.drop_save:
+            self.tasks[task_id] = _StubTask(task_id, kw["idempotency_key"])
+        return task_id
+
+    def get_task(self, task_id):
+        return self.tasks.get(task_id)
+
+    def get_task_by_idempotency_key(self, key):
+        return next((t for t in self.tasks.values() if t.idempotency_key == key), None)
+
+    def cancel_task(self, task_id, reason=""):
+        return task_id in self.tasks
+
+
+REQUEST = bp.SubmitRequest("agent-office-workflow:r/implementation/1/1", "title",
+                           "goal", "/repo", None, "claude", "claude-opus-5-5", 60,
+                           complexity="heavy")
+
+
+class TaskBridgeAdapterTests(TempDirCase):
+    def test_maps_request_to_public_submit_signature(self) -> None:
+        stub = _StubBridge()
+        adapter = bp.TaskBridgeAdapter(stub, complexity_type=str)
+        task_id = adapter.submit_task(REQUEST)
+        self.assertEqual(adapter.submit_task(REQUEST), task_id)
+        kw = stub.kwargs[0]
+        self.assertEqual(kw["idempotency_key"], REQUEST.idempotency_key)
+        self.assertEqual((kw["executor"], kw["model"], kw["complexity"]),
+                         ("claude", "claude-opus-5-5", "heavy"))
+        self.assertEqual(adapter.reconcile_task(REQUEST.idempotency_key).task_id, task_id)
+
+    def test_unpersisted_ack_and_exceptions_become_transport_errors(self) -> None:
+        stub = _StubBridge()
+        adapter = bp.TaskBridgeAdapter(stub, complexity_type=str)
+        stub.drop_save = True
+        with self.assertRaises(bp.BridgeTransportError):
+            adapter.submit_task(REQUEST)
+        stub.drop_save, stub.explode = False, True
+        with self.assertRaises(bp.BridgeTransportError):
+            adapter.submit_task(REQUEST)
+
+    def test_reads_workflow_evidence_artifact(self) -> None:
+        path = self.root / bp.EVIDENCE_FILENAME
+        path.write_text(json.dumps({"producer": "x", "verdict": "defect"}))
+        stub = _StubBridge()
+        stub.tasks["t9"] = _StubTask("t9", "k", "succeeded", artifacts=[str(path)])
+        status = bp.TaskBridgeAdapter(stub, complexity_type=str).get_task_status("t9")
+        self.assertEqual(status.evidence["verdict"], "defect")
+        self.assertTrue(status.terminal)
+
+
+STAGE2_SRC = Path("/home/tyler/workspaces/stage2-infra/src")
+
+
+@unittest.skipUnless((STAGE2_SRC / "task_bridge" / "bridge.py").exists(),
+                     "stage2-infra Task Bridge sources not present")
+class RealTaskBridgeSandboxTests(TempDirCase):
+    """Real TaskBridge class, temp DB/dirs only, wake runner stubbed + deferred."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        import sys
+        if str(STAGE2_SRC) not in sys.path:
+            sys.path.append(str(STAGE2_SRC))
+        from task_bridge.bridge import TaskBridge
+        from task_bridge.wake import ManagerWakeDispatcher
+        sandbox = self.root / "bridge"
+        self.bridge = TaskBridge(db_path=sandbox / "tasks.db", base_workdir=sandbox / "work",
+                                 outbox_dir=sandbox / "outbox",
+                                 artifacts_dir=sandbox / "artifacts")
+        self.wake_commands: list = []
+        self.bridge.wake_dispatcher = ManagerWakeDispatcher(
+            self.bridge.storage,
+            runner=lambda cmd: self.wake_commands.append(cmd) or (0, "", ""))
+        self.bridge.defer_wake_dispatch = True
+        self.adapter = bp.TaskBridgeAdapter(self.bridge)
+
+    def test_workflow_attempt_round_trips_through_real_bridge(self) -> None:
+        from task_bridge.models import TaskState
+        clock = Clock()
+        repo = self.open_repo()
+        engine = WorkflowEngine(repo, clock=clock)
+        coordinator = Coordinator(engine, self.adapter)
+        digest = engine.register(build_release_workflow())
+        engine.start_run("run-1", digest, {"goal": "g",
+                                           "working_dir": str(self.root / "wd")})
+        coordinator.run_until_idle()
+        coordinator.run_until_idle()
+        attempt = repo.active_attempt("run-1")
+        task = self.bridge.get_task(attempt["task_id"])
+        self.assertEqual(task.idempotency_key, attempt["idempotency_key"])
+        self.assertEqual(task.executor, "claude")
+        self.assertEqual(len(self.bridge.list_tasks()), 1)
+        # Simulate Bridge worker acquisition + completion with evidence file.
+        self.assertTrue(self.bridge.storage.atomic_transition(
+            task_id=task.id, from_states=[TaskState.QUEUED], to_state=TaskState.RUNNING,
+            updates={}))
+        evidence_file = self.root / bp.EVIDENCE_FILENAME
+        evidence_file.write_text(json.dumps(evidence("implementation")))
+        self.assertTrue(self.bridge.complete_task(task.id, git_sha=SHA1,
+                                                  artifacts=[str(evidence_file)]))
+        coordinator.run_until_idle()
+        self.assertEqual(repo.active_attempt("run-1")["node"], "acceptance")
+        engine.request_cancel("run-1", "sandbox done")
+        coordinator.run_until_idle()
+        self.assertEqual(repo.get_run("run-1")["status"], "cancelled")
+        self.assertEqual(self.wake_commands, [])
