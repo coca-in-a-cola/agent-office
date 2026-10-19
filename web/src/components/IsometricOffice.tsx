@@ -1,13 +1,32 @@
 import React, { useState } from 'react';
-import { Agent, AgentStatus } from '../types';
+import { Agent } from '../types';
 import { StatusBadge } from './StatusBadge';
-import { ZoomIn, ZoomOut, RotateCcw, Monitor, Terminal, Palette, ShieldCheck, Crown } from 'lucide-react';
+import { deskStatusColor } from './WorkflowAssignmentBadge';
+import {
+  ZoomIn,
+  ZoomOut,
+  RotateCcw,
+  Monitor,
+  Terminal,
+  Palette,
+  ShieldCheck,
+  Crown,
+  ExternalLink,
+  GitBranch,
+  User,
+  X,
+} from 'lucide-react';
 
 interface IsometricOfficeProps {
   agents: Agent[];
   selectedAgentId: string | null;
   onSelectAgent: (agentId: string) => void;
+  /** Jump to a workflow run/node in Process Studio. */
+  onOpenWorkflow?: (runId: string, node: string, source?: string) => void;
 }
+
+const POPOVER_W = 260;
+const POPOVER_H = 190;
 
 // Workstation position mapping on the isometric floor plane
 const WORKSTATION_CONFIG: Record<string, {
@@ -70,9 +89,12 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
   agents,
   selectedAgentId,
   onSelectAgent,
+  onOpenWorkflow,
 }) => {
   const [zoom, setZoom] = useState<number>(1);
   const [hoveredAgentId, setHoveredAgentId] = useState<string | null>(null);
+  // Desk whose workflow quick-preview popover is open.
+  const [popoverId, setPopoverId] = useState<string | null>(null);
 
   // Convert isometric grid coordinates (gridX, gridY) to screen (X, Y)
   // Standard 2:1 isometric projection:
@@ -99,6 +121,22 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
       current_model: 'unknown',
     };
   };
+
+  // Active workflow desks open a quick preview; others open the agent inspector.
+  const handleDeskClick = (id: string) => {
+    if (getAgentData(id).workflow_assignment) {
+      setPopoverId((current) => (current === id ? null : id));
+      return;
+    }
+    setPopoverId(null);
+    onSelectAgent(id);
+  };
+
+  const popoverAgent = popoverId ? getAgentData(popoverId) : null;
+  const popoverAssignment = popoverAgent?.workflow_assignment ?? null;
+  const popoverPos = popoverId && WORKSTATION_CONFIG[popoverId]
+    ? toScreen(WORKSTATION_CONFIG[popoverId].gridX, WORKSTATION_CONFIG[popoverId].gridY)
+    : null;
 
   return (
     <div className="relative w-full h-full flex flex-col items-center justify-center bg-radial-gradient overflow-hidden select-none">
@@ -220,8 +258,8 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
             </filter>
           </defs>
 
-          {/* Isometric Office Floor Plane */}
-          <g id="office-floor">
+          {/* Isometric Office Floor Plane (click closes the popover) */}
+          <g id="office-floor" onClick={() => setPopoverId(null)}>
             {/* Outer Room Slab */}
             <polygon
               points="0,-190 420,20 0,230 -420,20"
@@ -353,16 +391,21 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
             const isSelected = selectedAgentId?.toLowerCase() === id;
             const isHovered = hoveredAgentId === id;
             const isWorking = agent.status === 'working';
-            const isResearching = agent.status === 'researching';
-            const isBlocked = agent.status === 'blocked';
-            const isAwaiting = agent.status === 'awaiting_human';
+            const isBlocked = agent.status === 'blocked' || agent.status === 'defect';
+            const statusColor = deskStatusColor(agent.status);
+            const assignment = agent.workflow_assignment ?? null;
+            const badgeLabel = assignment
+              ? `${assignment.assignment === 'approver' ? 'approve ' : ''}${assignment.node}`
+              : '';
+            const badgeW = Math.max(70, badgeLabel.length * 6.2 + 30);
 
             return (
               <g
                 key={id}
                 transform={`translate(${pos.x}, ${pos.y})`}
                 className="cursor-pointer transition-all duration-200"
-                onClick={() => onSelectAgent(id)}
+                onClick={() => handleDeskClick(id)}
+                data-testid={`desk-${id}`}
                 onMouseEnter={() => setHoveredAgentId(id)}
                 onMouseLeave={() => setHoveredAgentId(null)}
               >
@@ -529,34 +572,14 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
                     cx="-42"
                     cy="-4"
                     r="4"
-                    fill={
-                      isWorking
-                        ? '#34d399'
-                        : isResearching
-                        ? '#60a5fa'
-                        : isBlocked
-                        ? '#f43f5e'
-                        : isAwaiting
-                        ? '#c084fc'
-                        : '#94a3b8'
-                    }
+                    fill={statusColor}
                     className={isWorking || isBlocked ? 'animate-ping' : ''}
                   />
                   <circle
                     cx="-42"
                     cy="-4"
                     r="3.5"
-                    fill={
-                      isWorking
-                        ? '#34d399'
-                        : isResearching
-                        ? '#60a5fa'
-                        : isBlocked
-                        ? '#f43f5e'
-                        : isAwaiting
-                        ? '#c084fc'
-                        : '#94a3b8'
-                    }
+                    fill={statusColor}
                   />
 
                   {/* Profile Name & Status text */}
@@ -582,9 +605,39 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
                     {agent.status}
                   </text>
 
+                  {/* Active workflow node badge above the desk */}
+                  {assignment && (
+                    <g transform="translate(0, -32)" data-testid={`desk-badge-${id}`}>
+                      <title>{`${assignment.current_task} — ${assignment.run_status}`}</title>
+                      <rect
+                        x={-badgeW / 2}
+                        y="-14"
+                        width={badgeW}
+                        height="20"
+                        rx="10"
+                        fill="#020617"
+                        stroke={statusColor}
+                        strokeWidth="1.5"
+                        className={isWorking ? 'animate-pulse' : ''}
+                      />
+                      <polygon points="0,10 -4,6 4,6" fill={statusColor} />
+                      <text
+                        x="0"
+                        y="0"
+                        fill={statusColor}
+                        fontSize="9.5"
+                        textAnchor="middle"
+                        fontFamily="JetBrains Mono, monospace"
+                        fontWeight="600"
+                      >
+                        ⎇ {badgeLabel}
+                      </text>
+                    </g>
+                  )}
+
                   {/* Tool Call Balloon / Speech Bubble if active */}
                   {agent.last_tool_call && (
-                    <g transform="translate(0, -32)">
+                    <g transform={`translate(0, ${assignment ? -58 : -32})`}>
                       <rect
                         x="-65"
                         y="-14"
@@ -614,6 +667,78 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
               </g>
             );
           })}
+
+          {/* Workflow quick-preview popover for the clicked desk */}
+          {popoverAgent && popoverAssignment && popoverPos && (
+            <foreignObject
+              x={popoverPos.x + 60 + POPOVER_W > 460 ? popoverPos.x - 60 - POPOVER_W : popoverPos.x + 60}
+              y={Math.max(-255, popoverPos.y - 150)}
+              width={POPOVER_W}
+              height={POPOVER_H}
+            >
+              <div
+                role="dialog"
+                aria-label={`${popoverAgent.profile_name} workflow step`}
+                data-testid="workflow-popover"
+                onClick={(e) => e.stopPropagation()}
+                className="h-full bg-slate-900/95 border border-cyan-500/60 rounded-xl shadow-2xl p-3 text-[11px] text-slate-200 flex flex-col gap-1.5"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-slate-100">{popoverAgent.profile_name}</span>
+                  <div className="flex items-center gap-1.5">
+                    <StatusBadge status={popoverAgent.status} size="sm" showAnimation={false} />
+                    <button
+                      onClick={() => setPopoverId(null)}
+                      className="text-slate-400 hover:text-white"
+                      aria-label="Close"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 text-cyan-300 font-mono">
+                  <GitBranch size={11} />
+                  {popoverAssignment.node}
+                  <span className="text-slate-500">({popoverAssignment.role})</span>
+                </div>
+                <p className="font-medium leading-snug line-clamp-2">{popoverAssignment.current_task}</p>
+                <div className="font-mono text-[10px] text-slate-400 leading-snug">
+                  <div>run {popoverAssignment.run_id} · {popoverAssignment.run_status}</div>
+                  <div className="truncate">
+                    {popoverAssignment.task_id
+                      ? `bridge ${popoverAssignment.task_id}`
+                      : popoverAssignment.gate_id
+                      ? `gate ${popoverAssignment.gate_id}`
+                      : 'awaiting Bridge submission'}
+                  </div>
+                </div>
+                <div className="mt-auto flex items-center gap-1.5">
+                  <button
+                    onClick={() => {
+                      setPopoverId(null);
+                      onOpenWorkflow?.(popoverAssignment.run_id, popoverAssignment.node,
+                        popoverAgent.profile_name);
+                    }}
+                    disabled={!onOpenWorkflow}
+                    className="flex-1 flex items-center justify-center gap-1 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold rounded-md px-2 py-1 transition disabled:opacity-50"
+                  >
+                    <ExternalLink size={11} />
+                    Open in Process Studio
+                  </button>
+                  <button
+                    onClick={() => {
+                      setPopoverId(null);
+                      onSelectAgent(popoverAgent.id);
+                    }}
+                    className="flex items-center gap-1 border border-slate-700 hover:border-slate-500 rounded-md px-2 py-1 text-slate-300 transition"
+                    title="Agent details"
+                  >
+                    <User size={11} />
+                  </button>
+                </div>
+              </div>
+            </foreignObject>
+          )}
         </svg>
       </div>
     </div>

@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { Agent, OfficeState } from './types';
+import { Agent, OfficeState, StudioFocus } from './types';
 import { IsometricOffice } from './components/IsometricOffice';
 import { EmployeeRoster } from './components/EmployeeRoster';
 import { StatusBadge } from './components/StatusBadge';
+import { WorkflowAssignmentBadge } from './components/WorkflowAssignmentBadge';
 import { ProcessStudio } from './components/process_studio/ProcessStudio';
 import {
   Building2,
@@ -46,7 +47,7 @@ const FALLBACK_STATE: OfficeState = {
       id: 'coder',
       profile_name: 'Coder',
       role: 'Coder',
-      status: 'working',
+      status: 'idle',
       current_model: 'anthropic/claude-3-5-sonnet',
       capabilities: ['python', 'typescript', 'architecture', 'algorithms'],
       metadata: { desk: 'engineering', position: [0, 1] },
@@ -64,7 +65,7 @@ const FALLBACK_STATE: OfficeState = {
       id: 'qa',
       profile_name: 'QA',
       role: 'QA',
-      status: 'review',
+      status: 'idle',
       current_model: 'anthropic/claude-3-5-sonnet',
       capabilities: ['testing', 'regression', 'verification', 'security'],
       metadata: { desk: 'quality', position: [2, 1] },
@@ -92,9 +93,18 @@ export const App: React.FC = () => {
     window.location.hash === '#tycoon' ? 'tycoon' : 'studio'
   );
 
+  const [studioFocus, setStudioFocus] = useState<StudioFocus | null>(null);
+
   const switchView = (next: View) => {
     setView(next);
     window.history.replaceState(null, '', `#${next}`);
+  };
+
+  // Tycoon View -> Process Studio: open the run and highlight the node.
+  const openInStudio = (runId: string, node: string | null, source?: string) => {
+    setStudioFocus({ runId, node, source, nonce: Date.now() });
+    setIsInspectorOpen(false);
+    switchView('studio');
   };
 
   const fetchState = async () => {
@@ -226,7 +236,9 @@ export const App: React.FC = () => {
         </div>
       </header>
 
-      {view === 'studio' && <ProcessStudio />}
+      {view === 'studio' && (
+        <ProcessStudio focus={studioFocus} onDismissFocus={() => setStudioFocus(null)} />
+      )}
 
       {/* Main Experience Viewport (Tycoon View) */}
       {view === 'tycoon' && (
@@ -238,6 +250,7 @@ export const App: React.FC = () => {
               agents={state.agents}
               selectedAgentId={selectedAgentId}
               onSelectAgent={handleSelectAgent}
+              onOpenWorkflow={openInStudio}
             />
           ) : (
             <div className="flex-1 overflow-y-auto p-6 max-w-4xl mx-auto w-full">
@@ -287,6 +300,7 @@ export const App: React.FC = () => {
           agents={state.agents}
           selectedAgentId={selectedAgentId}
           onSelectAgent={handleSelectAgent}
+          onOpenWorkflow={openInStudio}
         />
       </div>
       )}
@@ -324,6 +338,31 @@ export const App: React.FC = () => {
               </span>
               <StatusBadge status={selectedAgent.status} size="lg" />
             </div>
+
+            {/* Workflow assignment projected from Workflow Core */}
+            {selectedAgent.workflow_assignments && selectedAgent.workflow_assignments.length > 0 && (
+              <div className="bg-slate-950/80 border border-cyan-900/60 rounded-xl p-3.5 space-y-2">
+                <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <GitBranch size={13} className="text-cyan-400" />
+                  Workflow Assignments
+                </span>
+                {selectedAgent.workflow_assignments.map((wa) => (
+                  <div key={`${wa.run_id}/${wa.assignment}`} className="space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium text-slate-200 truncate">{wa.current_task}</span>
+                      <WorkflowAssignmentBadge
+                        assignment={wa}
+                        onOpen={(runId, node) => openInStudio(runId, node, selectedAgent.profile_name)}
+                      />
+                    </div>
+                    <div className="text-[10px] font-mono text-slate-500">
+                      {wa.run_status} · {wa.attempt_id ?? wa.gate_id ?? 'no attempt yet'}
+                      {wa.task_id ? ` · bridge ${wa.task_id}` : ''}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
 
             {/* Model & Runtime Section */}
             <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3.5 space-y-2">

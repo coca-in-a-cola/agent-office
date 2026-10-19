@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Agent, AgentStatus } from '../types';
 import { StatusBadge } from './StatusBadge';
+import { WorkflowAssignmentBadge } from './WorkflowAssignmentBadge';
 import {
   Users,
   Search,
@@ -11,18 +12,23 @@ import {
   Sparkles,
   ChevronRight,
   Filter,
+  GitBranch,
+  ExternalLink,
 } from 'lucide-react';
 
 interface EmployeeRosterProps {
   agents: Agent[];
   selectedAgentId: string | null;
   onSelectAgent: (agentId: string) => void;
+  /** Jump to a workflow run/node in Process Studio. */
+  onOpenWorkflow?: (runId: string, node: string, source?: string) => void;
 }
 
 export const EmployeeRoster: React.FC<EmployeeRosterProps> = ({
   agents,
   selectedAgentId,
   onSelectAgent,
+  onOpenWorkflow,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<AgentStatus | 'all'>('all');
@@ -88,7 +94,7 @@ export const EmployeeRoster: React.FC<EmployeeRosterProps> = ({
           >
             All ({agents.length})
           </button>
-          {(['working', 'researching', 'review', 'blocked', 'awaiting_human', 'idle'] as AgentStatus[]).map((st) => {
+          {(['working', 'researching', 'review', 'blocked', 'defect', 'awaiting_human', 'idle'] as AgentStatus[]).map((st) => {
             const count = statusCounts[st] || 0;
             return (
               <button
@@ -116,6 +122,9 @@ export const EmployeeRoster: React.FC<EmployeeRosterProps> = ({
         ) : (
           filteredAgents.map((agent) => {
             const isSelected = selectedAgentId?.toLowerCase() === agent.id.toLowerCase();
+            const assignment = agent.workflow_assignment ?? null;
+            const openWorkflow = (runId: string, node: string) =>
+              onOpenWorkflow?.(runId, node, agent.profile_name);
 
             return (
               <div
@@ -148,6 +157,16 @@ export const EmployeeRoster: React.FC<EmployeeRosterProps> = ({
                         )}
                       </h3>
                       <p className="text-xs text-slate-400 font-medium">{agent.role}</p>
+                      {assignment && onOpenWorkflow && (
+                        <div className="mt-1 flex items-center gap-1">
+                          <WorkflowAssignmentBadge assignment={assignment} onOpen={openWorkflow} />
+                          {(agent.workflow_assignments?.length ?? 0) > 1 && (
+                            <span className="text-[10px] text-slate-500 font-mono">
+                              +{(agent.workflow_assignments?.length ?? 1) - 1}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -163,8 +182,39 @@ export const EmployeeRoster: React.FC<EmployeeRosterProps> = ({
                   </span>
                 </div>
 
-                {/* Active Task (from task_snapshots) */}
-                {agent.active_task ? (
+                {/* Active workflow step (projected from Workflow Core) */}
+                {assignment ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openWorkflow(assignment.run_id, assignment.node);
+                    }}
+                    disabled={!onOpenWorkflow}
+                    className="w-full text-left mb-2.5 bg-slate-950/70 border border-cyan-900/70 hover:border-cyan-500/70 rounded-lg p-2.5 transition"
+                    title="Open in Process Studio"
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="flex items-center gap-1 text-[10px] font-semibold tracking-wider text-cyan-400 uppercase font-mono">
+                        <GitBranch size={11} />
+                        Workflow Step
+                      </span>
+                      <span className="flex items-center gap-1 text-[10px] font-mono text-slate-400">
+                        {assignment.run_id}
+                        <ExternalLink size={10} />
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-200 font-medium line-clamp-2">
+                      {agent.current_task ?? assignment.current_task}
+                    </p>
+                    <div className="flex items-center gap-2 mt-1 text-[10px] text-slate-500">
+                      <span>Run: <strong className="text-slate-400">{assignment.run_status}</strong></span>
+                      {agent.active_task_id && (
+                        <span>• Bridge: <strong className="text-slate-400 font-mono">{agent.active_task_id}</strong></span>
+                      )}
+                    </div>
+                  </button>
+                ) : agent.active_task ? (
                   <div className="mb-2.5 bg-slate-950/70 border border-slate-800/90 rounded-lg p-2.5">
                     <div className="flex items-center justify-between mb-1">
                       <span className="flex items-center gap-1 text-[10px] font-semibold tracking-wider text-cyan-400 uppercase font-mono">
