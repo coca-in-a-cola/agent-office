@@ -1,7 +1,8 @@
 # Workflow Core (AO-GRAPH-02)
 
 Date: 2026-10-19. Status: implemented and tested locally. Not deployed, no
-supervisor installed, not wired into the Hermes plugin or HTTP server.
+supervisor installed, not wired into the Hermes plugin. The HTTP API and
+web UI are described in `process-studio.md` (AO-GRAPH-03).
 
 ## Modules (`agent_office/workflow/`)
 
@@ -30,7 +31,7 @@ Duplicates are no-ops. An event_id already seen writes nothing; a new event for 
 
 ## Not in scope / limits
 
-- Joins and parallel branches; Process Studio and Tycoon wiring; migrating an existing run to a new version; a multi-coordinator lease.
+- Joins and parallel branches; Tycoon wiring; migrating an existing run to a new version; a multi-coordinator lease.
 - Real publication and delivery adapters. Release nodes are Bridge tasks, and the engine only checks the evidence they return.
 - `continuation.py` has not yet been told to stop picking successors for workflow-owned tasks. That needs an agreed integration contract and separate authorization before any Bridge edit.
 - No exactly-once guarantee for external effects. The `FakeBridge` UNIQUE key models the idempotency Bridge intends, not measured concurrency.
