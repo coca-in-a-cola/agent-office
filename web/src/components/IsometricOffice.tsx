@@ -11,6 +11,7 @@ import {
   Palette,
   ShieldCheck,
   Crown,
+  Globe,
   ExternalLink,
   GitBranch,
   User,
@@ -36,7 +37,7 @@ const WORKSTATION_CONFIG: Record<string, {
   gridY: number;
   icon: React.ElementType;
   accentColor: string;
-  deskType: 'executive' | 'art' | 'code' | 'ops' | 'qa';
+  deskType: 'executive' | 'art' | 'code' | 'ops' | 'qa' | 'web';
 }> = {
   tyler: {
     name: 'Tyler',
@@ -49,7 +50,7 @@ const WORKSTATION_CONFIG: Record<string, {
   },
   coder: {
     name: 'Coder',
-    role: 'Coder',
+    role: 'Godot Dev',
     gridX: -1.4,
     gridY: 0.4,
     icon: Terminal,
@@ -82,6 +83,16 @@ const WORKSTATION_CONFIG: Record<string, {
     icon: ShieldCheck,
     accentColor: '#06b6d4',
     deskType: 'qa',
+  },
+  // Server grid position [2, 0]: front-right corner of the floor.
+  webdev: {
+    name: 'WebDev',
+    role: 'Web Engineer',
+    gridX: 2.0,
+    gridY: 1.0,
+    icon: Globe,
+    accentColor: '#0ea5e9',
+    deskType: 'web',
   },
 };
 
@@ -245,6 +256,10 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
             <linearGradient id="screenQaGrad" x1="0%" y1="0%" x2="100%" y2="100%">
               <stop offset="0%" stopColor="#155e75" />
               <stop offset="100%" stopColor="#083344" />
+            </linearGradient>
+            <linearGradient id="screenWebGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#0c4a6e" />
+              <stop offset="100%" stopColor="#1e1b4b" />
             </linearGradient>
 
             {/* Drop Shadows */}
@@ -532,6 +547,32 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
                     <circle cx="8" cy="-11" r="2.5" fill="#38bdf8" />
                     {/* Diagnostic pad */}
                     <polygon points="-28,14 -12,22 -16,28 -32,20" fill="#f8fafc" stroke="#64748b" strokeWidth="1" />
+                  </g>
+                )}
+
+                {conf.deskType === 'web' && (
+                  /* WebDev: Browser Window, Component Grid & Device Preview */
+                  <g id="webdev-desk">
+                    {/* Chair */}
+                    <ellipse cx="0" cy="-6" rx="14" ry="7" fill="#0c4a6e" />
+                    <polygon points="-10,-6 10,-6 9,-28 -9,-28" fill="#082f49" stroke="#0ea5e9" strokeWidth="1.5" />
+                    {/* Desk */}
+                    <polygon points="0,-8 46,15 0,38 -46,15" fill="#1e293b" stroke="#0ea5e9" strokeWidth="1.5" />
+                    <polygon points="46,15 46,26 0,49 0,38" fill="#0f172a" />
+                    <polygon points="-46,15 -46,26 0,49 0,38" fill="#090d16" />
+                    {/* Wide browser monitor with tab bar */}
+                    <polygon points="-22,0 22,0 22,-26 -22,-26" fill="url(#screenWebGrad)" stroke="#0ea5e9" strokeWidth="1.2" />
+                    <rect x="-22" y="-26" width="44" height="5" fill="#0369a1" />
+                    <circle cx="-18" cy="-23.5" r="1.1" fill="#f87171" />
+                    <circle cx="-14.5" cy="-23.5" r="1.1" fill="#fbbf24" />
+                    <circle cx="-11" cy="-23.5" r="1.1" fill="#34d399" />
+                    {/* Component layout blocks */}
+                    <rect x="-18" y="-18" width="16" height="6" rx="1" fill="#38bdf8" opacity="0.85" />
+                    <rect x="1" y="-18" width="17" height="6" rx="1" fill="#818cf8" opacity="0.75" />
+                    <rect x="-18" y="-9" width="36" height="5" rx="1" fill="#22d3ee" opacity="0.6" />
+                    {/* Phone preview for responsive testing */}
+                    <rect x="27" y="2" width="8" height="14" rx="1.5" fill="#0f172a" stroke="#38bdf8" strokeWidth="1" />
+                    <rect x="28.5" y="4" width="5" height="9" fill="#0ea5e9" opacity="0.7" />
                   </g>
                 )}
 
