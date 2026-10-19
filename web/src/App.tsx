@@ -3,6 +3,7 @@ import { Agent, OfficeState } from './types';
 import { IsometricOffice } from './components/IsometricOffice';
 import { EmployeeRoster } from './components/EmployeeRoster';
 import { StatusBadge } from './components/StatusBadge';
+import { ProcessStudio } from './components/process_studio/ProcessStudio';
 import {
   Building2,
   Activity,
@@ -13,8 +14,11 @@ import {
   Layers,
   Terminal,
   X,
-  ExternalLink,
+  GitBranch,
+  Building,
 } from 'lucide-react';
+
+type View = 'studio' | 'tycoon';
 
 const FALLBACK_STATE: OfficeState = {
   status: 'ok',
@@ -84,6 +88,14 @@ export const App: React.FC = () => {
   const [lastSync, setLastSync] = useState<Date>(new Date());
   const [isInspectorOpen, setIsInspectorOpen] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<'office' | 'activities'>('office');
+  const [view, setView] = useState<View>(
+    window.location.hash === '#tycoon' ? 'tycoon' : 'studio'
+  );
+
+  const switchView = (next: View) => {
+    setView(next);
+    window.history.replaceState(null, '', `#${next}`);
+  };
 
   const fetchState = async () => {
     try {
@@ -129,13 +141,43 @@ export const App: React.FC = () => {
               </span>
             </h1>
             <p className="text-[10px] text-slate-400 font-medium">
-              Isometric Web Office & Employee Roster
+              {view === 'studio'
+                ? 'Process Studio — workflow graph & visual debugger'
+                : 'Tycoon View — isometric office & employee roster'}
             </p>
           </div>
         </div>
 
-        {/* View Switcher Tabs */}
-        <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-xs">
+        {/* Primary navigation: Process Studio / Tycoon View */}
+        <nav className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-xs" aria-label="Views">
+          <button
+            onClick={() => switchView('studio')}
+            aria-current={view === 'studio' ? 'page' : undefined}
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-md font-medium transition ${
+              view === 'studio'
+                ? 'bg-cyan-500 text-slate-950 font-semibold shadow-sm'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <GitBranch size={13} />
+            Process Studio
+          </button>
+          <button
+            onClick={() => switchView('tycoon')}
+            aria-current={view === 'tycoon' ? 'page' : undefined}
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-md font-medium transition ${
+              view === 'tycoon'
+                ? 'bg-cyan-500 text-slate-950 font-semibold shadow-sm'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Building size={13} />
+            Tycoon View
+          </button>
+        </nav>
+
+        {/* Tycoon sub-tabs */}
+        <div className={`items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-xs ${view === 'tycoon' ? 'flex' : 'hidden'}`}>
           <button
             onClick={() => setActiveTab('office')}
             className={`flex items-center gap-1.5 px-3 py-1 rounded-md font-medium transition ${
@@ -184,7 +226,10 @@ export const App: React.FC = () => {
         </div>
       </header>
 
-      {/* Main Experience Viewport */}
+      {view === 'studio' && <ProcessStudio />}
+
+      {/* Main Experience Viewport (Tycoon View) */}
+      {view === 'tycoon' && (
       <div className="flex-1 flex overflow-hidden relative">
         {/* Left / Center View: Isometric Canvas OR Activity Log */}
         <main className="flex-1 relative flex flex-col overflow-hidden bg-radial-gradient">
@@ -244,9 +289,10 @@ export const App: React.FC = () => {
           onSelectAgent={handleSelectAgent}
         />
       </div>
+      )}
 
       {/* Agent Details Modal / Inspector Drawer */}
-      {isInspectorOpen && selectedAgent && (
+      {view === 'tycoon' && isInspectorOpen && selectedAgent && (
         <div className="fixed inset-y-0 right-0 w-full sm:w-[480px] bg-slate-900/95 backdrop-blur-xl border-l border-slate-700 shadow-2xl z-50 flex flex-col animate-in slide-in-from-right duration-200">
           {/* Drawer Header */}
           <div className="p-4 border-b border-slate-800 flex items-center justify-between">
