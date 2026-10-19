@@ -740,3 +740,116 @@ class ApprovalExpiryTests(EngineCase):
             self.h.engine.approve(gate["gate_id"], "owner", gate["scope"])
         self.assertEqual(self.h.run()["status"], "blocked")
         self.assertNotIn("publication", self.nodes_submitted())
+
+
+CHILD_CRASH = r"""
+import os, sys
+sys.path.insert(0, sys.argv[1])
+from agent_office.workflow.bridge_port import FakeBridge
+from agent_office.workflow.coordinator import Coordinator
+from agent_office.workflow.engine import WorkflowEngine
+from agent_office.workflow.storage import WorkflowRepository
+
+root = sys.argv[2]
+repo = WorkflowRepository(root + "/workflow.sqlite3")
+engine = WorkflowEngine(repo, clock=lambda: 1_000_000.0)
+engine.record_submission = lambda *a, **k: os._exit(137)  # die after Bridge accept
+Coordinator(engine, FakeBridge(root + "/fake-bridge.sqlite3")).run_once()
+"""
+
+
+class FaultInjectionTests(EngineCase):
+    def test_failed_successor_creation_rolls_back_and_replays_once(self) -> None:
+        self.start()
+        attempt = self.h.active()
+        self.h.bridge.set_state(attempt["task_id"], bp.SUCCEEDED,
+                                evidence=evidence("implementation"))
+        with mock.patch.object(self.h.repo, "insert_attempt",
+                               side_effect=sqlite3.OperationalError("disk I/O error")):
+            with self.assertRaises(sqlite3.OperationalError):
+                self.h.tick()
+        stored = self.h.repo.get_attempt(attempt["attempt_id"])
+        self.assertEqual(stored["status"], "submitted")
+        self.assertEqual(self.h.repo.receipts(attempt["attempt_id"]), [])
+        self.assertEqual(self.h.run()["source_sha"], None)
+        self.h.restart().tick()
+        self.h.restart().tick()
+        self.assertEqual(self.nodes_submitted(), ["implementation", "acceptance"])
+
+    def test_lost_submit_ack_reconciles_to_single_task(self) -> None:
+        self.h.engine.start_run("run-1", self.v1, {"goal": "g"})
+        self.h.bridge.inject("submit_lost_ack")
+        self.h.tick()
+        intent = self.h.repo.intents("run-1")[0]
+        self.assertEqual((intent["status"], intent["tries"]), ("pending", 1))
+        self.assertEqual(intent["due_at"], self.clock.now + 2)
+        self.assertIsNone(self.h.active()["task_id"])
+        self.clock.advance(2)
+        self.h.tick()
+        self.assertEqual(len(self.h.bridge.tasks()), 1)
+        self.assertEqual(self.h.active()["task_id"], self.h.bridge.tasks()[0]["task_id"])
+        self.assertEqual(self.h.bridge.calls("submit"), [self.h.active()["idempotency_key"]])
+
+    def test_crash_between_bridge_accept_and_record_is_recovered(self) -> None:
+        self.h.engine.start_run("run-1", self.v1, {"goal": "g"})
+        with mock.patch.object(self.h.engine, "record_submission",
+                               side_effect=RuntimeError("process killed")):
+            with self.assertRaises(RuntimeError):
+                self.h.tick()
+        self.h = self.h.restart()
+        self.h.tick()
+        self.assertEqual(len(self.h.bridge.tasks()), 1)
+        self.assertEqual(self.h.active()["status"], "submitted")
+
+    def test_hard_killed_coordinator_process_is_recovered(self) -> None:
+        import subprocess
+        import sys
+        self.h.engine.start_run("run-1", self.v1, {"goal": "g"})
+        project = str(Path(__file__).resolve().parents[1])
+        child = subprocess.run([sys.executable, "-c", CHILD_CRASH, project,
+                                str(self.root)], capture_output=True, timeout=60)
+        self.assertEqual(child.returncode, 137, child.stderr.decode()[-2000:])
+        self.assertEqual(len(self.h.bridge.tasks()), 1)
+        self.assertIsNone(self.h.restart().active()["task_id"])
+        self.h = self.h.restart()
+        self.h.tick()
+        self.assertEqual(len(self.h.bridge.tasks()), 1)
+        self.assertEqual(self.h.active()["task_id"], self.h.bridge.tasks()[0]["task_id"])
+
+    def test_terminal_bridge_state_while_coordinator_down(self) -> None:
+        self.start()
+        task_id = self.h.active()["task_id"]
+        self.h.repo.close()
+        self.h.bridge.set_state(task_id, bp.SUCCEEDED, evidence=evidence("implementation"))
+        self.h = self.h.restart()
+        self.h.tick()
+        self.assertEqual(self.h.active()["node"], "acceptance")
+
+    def test_transport_exhaustion_blocks_visibly(self) -> None:
+        self.h.engine.start_run("run-1", self.v1, {"goal": "g"})
+        self.h.bridge.inject(*["reconcile_error"] * 4)
+        for backoff in (0, 2, 4, 8):
+            self.clock.advance(backoff)
+            self.h.tick()
+        run = self.h.run()
+        self.assertEqual(run["status"], "blocked")
+        self.assertIn("unreconciled after 4 tries", run["status_reason"])
+        self.assertEqual(self.h.bridge.tasks(), [])
+        self.assertIsNone(self.h.active())
+
+    def test_status_poll_errors_do_not_change_state(self) -> None:
+        self.start()
+        self.h.bridge.inject("status_error")
+        report = self.h.coordinator.run_once()
+        self.assertEqual(report.transport_errors, 1)
+        self.assertEqual(self.h.active()["status"], "submitted")
+
+    def test_interrupted_cancel_is_retried_until_observed(self) -> None:
+        self.start()
+        self.h.engine.request_cancel("run-1", "stop")
+        self.h.bridge.inject("cancel_error")
+        self.h.tick()
+        self.assertEqual(self.h.run()["status"], "cancelling")
+        self.clock.advance(2)
+        self.h.tick()
+        self.assertEqual(self.h.run()["status"], "cancelled")
