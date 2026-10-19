@@ -1,8 +1,9 @@
 """Lightweight HTTP server and state API for Agent Office.
 
 Serves /api/state containing current agents, task snapshots, and activity events
-from SQLite storage with fail-open fallback, and serves static web assets for the
-isometric office frontend.
+from SQLite storage with fail-open fallback, the Process Studio workflow API under
+/api/workflow/ (fail-closed, backed by Workflow Core), and static web assets for
+the frontend.
 """
 
 from __future__ import annotations
@@ -18,11 +19,17 @@ from pathlib import Path
 import sys
 import threading
 import time
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
+from urllib.parse import unquote
 
 from .storage import OfficeStorage, get_default_storage
+from .workflow.service import WorkflowApiError, WorkflowService
 
 logger = logging.getLogger("agent_office.server")
+
+MAX_JSON_BODY = 1024 * 1024
+WORKFLOW_PREFIX = "/api/workflow"
+RUN_COMMANDS = ("pause", "resume", "cancel", "approve", "retry")
 
 # Standard workstation profiles for the isometric office layout
 DEFAULT_WORKSTATIONS: list[dict[str, Any]] = [
@@ -236,9 +243,11 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
         *args: Any,
         storage: Optional[OfficeStorage] = None,
         static_dir: Optional[Union[str, Path]] = None,
+        workflow: Optional[WorkflowService] = None,
         **kwargs: Any,
     ) -> None:
         self.storage = storage
+        self.workflow = workflow
         self.static_dir = Path(static_dir) if static_dir is not None else get_default_static_dir()
         super().__init__(*args, directory=str(self.static_dir), **kwargs)
 
@@ -272,8 +281,92 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
             self.handle_api_health()
             return
 
+        # Route: Process Studio workflow API
+        if self.is_workflow_path(parsed_path):
+            self.handle_workflow("GET", parsed_path)
+            return
+
         # Route: Static web assets & SPA fallback
         self.handle_static_or_spa(self.path.split("?")[0])
+
+    def do_POST(self) -> None:
+        """Handle POST requests (workflow commands only)."""
+        parsed_path = self.path.split("?")[0].rstrip("/")
+        if self.is_workflow_path(parsed_path):
+            self.handle_workflow("POST", parsed_path)
+            return
+        self.send_json(HTTPStatus.NOT_FOUND, {"status": "error", "message": "not found"})
+
+    # -- Process Studio workflow API ---------------------------------------
+    @staticmethod
+    def is_workflow_path(path: str) -> bool:
+        return path == WORKFLOW_PREFIX or path.startswith(WORKFLOW_PREFIX + "/")
+
+    def send_json(self, status: int, data: Any) -> None:
+        payload = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def read_json_body(self) -> dict[str, Any]:
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            raise WorkflowApiError(400, "invalid Content-Length")
+        if length > MAX_JSON_BODY:
+            raise WorkflowApiError(400, "request body too large")
+        raw = self.rfile.read(length) if length > 0 else b""
+        if not raw.strip():
+            return {}
+        try:
+            data = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError):
+            raise WorkflowApiError(400, "request body must be valid JSON")
+        if not isinstance(data, dict):
+            raise WorkflowApiError(400, "request body must be a JSON object")
+        return data
+
+    def route_workflow(self, method: str, path: str) -> tuple[int, Any]:
+        """Map (method, path) to a WorkflowService call; raises WorkflowApiError."""
+        service = self.workflow
+        if service is None:
+            raise WorkflowApiError(503, "workflow service is not configured")
+        parts = [unquote(p) for p in path[len(WORKFLOW_PREFIX):].split("/") if p]
+        handler: Optional[Callable[[], Any]] = None
+        status = HTTPStatus.OK
+        if parts == ["definitions"] and method == "GET":
+            handler = service.list_definitions
+        elif len(parts) == 2 and parts[0] == "definitions" and method == "GET":
+            handler = lambda: service.get_definition(parts[1])
+        elif parts == ["runs"] and method == "GET":
+            handler = service.list_runs
+        elif parts == ["runs"] and method == "POST":
+            body = self.read_json_body()
+            handler, status = (lambda: service.create_run(body)), HTTPStatus.CREATED
+        elif len(parts) == 2 and parts[0] == "runs" and method == "GET":
+            handler = lambda: service.get_run(parts[1])
+        elif len(parts) == 3 and parts[0] == "runs" and parts[2] in RUN_COMMANDS \
+                and method == "POST":
+            body = self.read_json_body()
+            command = getattr(service, parts[2])
+            handler = lambda: command(parts[1], body)
+        if handler is None:
+            raise WorkflowApiError(404, f"no workflow route {method} {path}")
+        return status, handler()
+
+    def handle_workflow(self, method: str, path: str) -> None:
+        try:
+            status, data = self.route_workflow(method, path)
+            self.send_json(status, data)
+        except WorkflowApiError as exc:
+            self.send_json(exc.status, {"status": "error", "message": exc.message})
+        except Exception as exc:  # fail closed: report, never fabricate state
+            logger.exception("Workflow API error on %s %s", method, path)
+            self.send_json(HTTPStatus.INTERNAL_SERVER_ERROR,
+                           {"status": "error", "message": f"internal error: {exc}"})
 
     def handle_api_state(self) -> None:
         """Serialize and serve current agent office state as JSON."""
@@ -495,13 +588,18 @@ def create_server(
     port: int = 8080,
     storage: Optional[OfficeStorage] = None,
     static_dir: Optional[Union[str, Path]] = None,
+    workflow: Optional[WorkflowService] = None,
 ) -> ThreadingHTTPServer:
-    """Instantiate and configure ThreadingHTTPServer with OfficeRequestHandler."""
+    """Instantiate and configure ThreadingHTTPServer with OfficeRequestHandler.
+
+    Without a workflow service, /api/workflow/* answers 503 (not configured).
+    """
     target_storage = storage if storage is not None else get_default_storage()
     target_static = static_dir if static_dir is not None else get_default_static_dir()
 
     def handler_factory(*args: Any, **kwargs: Any) -> OfficeRequestHandler:
-        return OfficeRequestHandler(*args, storage=target_storage, static_dir=target_static, **kwargs)
+        return OfficeRequestHandler(*args, storage=target_storage, static_dir=target_static,
+                                    workflow=workflow, **kwargs)
 
     return ThreadingHTTPServer((host, port), handler_factory)
 
@@ -511,9 +609,11 @@ def run_server(
     port: int = 8080,
     storage: Optional[OfficeStorage] = None,
     static_dir: Optional[Union[str, Path]] = None,
+    workflow: Optional[WorkflowService] = None,
 ) -> None:
     """Run HTTP server until interrupted."""
-    server = create_server(host=host, port=port, storage=storage, static_dir=static_dir)
+    server = create_server(host=host, port=port, storage=storage, static_dir=static_dir,
+                           workflow=workflow)
     logger.info("Agent Office server running at http://%s:%d", host, port)
     try:
         server.serve_forever()
@@ -521,6 +621,32 @@ def run_server(
         logger.info("Agent Office server shutting down.")
     finally:
         server.server_close()
+        if workflow is not None:
+            workflow.close()
+
+
+def build_workflow_service(
+    workflow_db: Union[str, Path],
+    task_bridge_db: Optional[Union[str, Path]] = None,
+    fake_bridge_db: Optional[Union[str, Path]] = None,
+) -> WorkflowService:
+    """Wire Workflow Core to the real Task Bridge, or to a local FakeBridge.
+
+    The FakeBridge never executes anything; it lets Process Studio be
+    exercised locally and is reported as bridge="fake" in run details.
+    """
+    Path(workflow_db).parent.mkdir(parents=True, exist_ok=True)
+    if task_bridge_db is not None:
+        from .workflow.bridge_port import TaskBridgeAdapter
+        from task_bridge.bridge import TaskBridge  # type: ignore[import-not-found]
+
+        bridge = TaskBridgeAdapter(TaskBridge(db_path=Path(task_bridge_db)))
+        return WorkflowService(workflow_db, bridge, bridge_kind="task_bridge")
+    from .workflow.bridge_port import FakeBridge
+
+    fake_path = Path(fake_bridge_db) if fake_bridge_db else Path(workflow_db).with_name(
+        "workflow-fake-bridge.sqlite3")
+    return WorkflowService(workflow_db, FakeBridge(fake_path), bridge_kind="fake")
 
 
 def main() -> None:
@@ -530,12 +656,33 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8080, help="Port to listen on (default 8080)")
     parser.add_argument("--static-dir", default=None, help="Path to static web assets")
     parser.add_argument("--db-path", default=None, help="Path to SQLite database")
+    parser.add_argument("--workflow-db", default=None,
+                        help="Workflow Core SQLite path (default: next to the office DB)")
+    parser.add_argument("--task-bridge-db", default=None,
+                        help="Real Task Bridge tasks.db (requires task_bridge on sys.path)")
+    parser.add_argument("--fake-bridge-db", default=None,
+                        help="FakeBridge SQLite path when no Task Bridge is given")
+    parser.add_argument("--coordinator-interval", type=float, default=5.0,
+                        help="Seconds between coordinator ticks (0 disables the loop)")
+    parser.add_argument("--no-workflow", action="store_true",
+                        help="Disable the /api/workflow endpoints")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
     storage = OfficeStorage(db_path=args.db_path) if args.db_path else None
-    run_server(host=args.host, port=args.port, storage=storage, static_dir=args.static_dir)
+    workflow = None
+    if not args.no_workflow:
+        office_db = Path((storage or get_default_storage()).db_path)
+        workflow_db = Path(args.workflow_db) if args.workflow_db else office_db.with_name(
+            "workflow.sqlite3")
+        workflow = build_workflow_service(workflow_db, args.task_bridge_db,
+                                          args.fake_bridge_db)
+        if args.coordinator_interval > 0:
+            workflow.start(args.coordinator_interval)
+        logger.info("Workflow Core at %s (bridge=%s)", workflow_db, workflow.bridge_kind)
+    run_server(host=args.host, port=args.port, storage=storage, static_dir=args.static_dir,
+               workflow=workflow)
 
 
 if __name__ == "__main__":
