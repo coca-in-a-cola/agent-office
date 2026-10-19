@@ -1,0 +1,140 @@
+"""Headless, browser-independent coordinator loop for Workflow Core.
+
+Each tick: resume due quota backoffs, execute due command intents against
+the Bridge port, then poll submitted attempts for terminal Bridge state or
+an expired workflow deadline. All decisions are delegated to the engine,
+which persists them transactionally; a crash at any point is recovered by
+the next tick (possibly in a new process) from the persisted intents.
+
+Single-coordinator-per-database is assumed (single-host milestone); no
+multi-coordinator lease/fencing is implemented.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+import threading
+from typing import Any, Mapping
+
+from .bridge_port import BridgePort, BridgeTransportError
+from .definitions import Outcome
+from .engine import TaskEvent, WorkflowEngine, event_from_status
+
+
+@dataclass
+class TickReport:
+    resumed: int = 0
+    submitted: int = 0
+    cancelled: int = 0
+    inspected: int = 0
+    events: int = 0
+    transport_errors: int = 0
+
+
+class Coordinator:
+    def __init__(self, engine: WorkflowEngine, bridge: BridgePort) -> None:
+        self.engine = engine
+        self.repo = engine.repo
+        self.bridge = bridge
+
+    def run_once(self) -> TickReport:
+        report = TickReport(resumed=len(self.engine.resume_due()))
+        for intent in self.repo.due_intents(self.engine.clock()):
+            self._execute(intent, report)
+        for attempt in self.repo.submitted_attempts():
+            self._poll(attempt, report)
+        return report
+
+    def run_until_idle(self, max_ticks: int = 20) -> list[TickReport]:
+        """Tick until nothing is due right now (tests / one-shot supervisor)."""
+        reports = []
+        for _ in range(max_ticks):
+            report = self.run_once()
+            reports.append(report)
+            if not any((report.resumed, report.submitted, report.cancelled,
+                        report.inspected, report.events)):
+                break
+        return reports
+
+    def run_forever(self, stop: threading.Event, interval: float = 5.0) -> None:
+        """Supervisor entry point; progress never depends on a browser/HTTP request."""
+        while not stop.is_set():
+            self.run_once()
+            stop.wait(interval)
+
+    # -- intents -------------------------------------------------------------
+    def _execute(self, intent: Mapping[str, Any], report: TickReport) -> None:
+        attempt = self.repo.get_attempt(intent["attempt_id"])
+        kind = intent["kind"]
+        try:
+            if kind == "submit":
+                self._submit(intent, attempt, report)
+            elif kind == "cancel":
+                self._cancel(intent, attempt, report)
+            elif kind == "inspect":
+                self._inspect(intent, attempt, report)
+        except BridgeTransportError as exc:
+            report.transport_errors += 1
+            self.engine.intent_transport_failed(intent["intent_id"],
+                                                attempt["attempt_id"], str(exc))
+
+    def _submit(self, intent: Mapping[str, Any], attempt: Mapping[str, Any],
+                report: TickReport) -> None:
+        if attempt["task_id"] is None:
+            # Reconcile first: a previous submit may have been accepted with
+            # its acknowledgement lost (or this process died before saving).
+            existing = self.bridge.reconcile_task(attempt["idempotency_key"])
+            task_id = existing.task_id if existing else self.bridge.submit_task(
+                self.engine.submit_request(attempt["attempt_id"]))
+        else:
+            task_id = attempt["task_id"]
+        self.engine.record_submission(intent["intent_id"], attempt["attempt_id"], task_id)
+        report.submitted += 1
+
+    def _cancel(self, intent: Mapping[str, Any], attempt: Mapping[str, Any],
+                report: TickReport) -> None:
+        task_id = attempt["task_id"]
+        if task_id is None:
+            existing = self.bridge.reconcile_task(attempt["idempotency_key"])
+            task_id = existing.task_id if existing else None
+        status = None
+        if task_id is not None:
+            self.bridge.cancel_task(task_id, "workflow cancel requested")
+            status = self.bridge.get_task_status(task_id)
+            if status is not None and not status.terminal:
+                raise BridgeTransportError(f"cancel of {task_id} not yet observed")
+        self.engine.record_cancel_result(intent["intent_id"], attempt["attempt_id"], status)
+        report.cancelled += 1
+
+    def _inspect(self, intent: Mapping[str, Any], attempt: Mapping[str, Any],
+                 report: TickReport) -> None:
+        status = self.bridge.reconcile_task(attempt["idempotency_key"])
+        if status is not None and not status.terminal:
+            # Overdue executor: ask Bridge (the only process owner) to stop it
+            # so inspection sees a quiescent, preserved state.
+            self.bridge.cancel_task(status.task_id, "workflow deadline exceeded")
+            status = self.bridge.get_task_status(status.task_id)
+        self.engine.resolve_inspection(intent["intent_id"], attempt["attempt_id"], status)
+        report.inspected += 1
+
+    # -- polling ---------------------------------------------------------------
+    def _poll(self, attempt: Mapping[str, Any], report: TickReport) -> None:
+        try:
+            status = self.bridge.get_task_status(attempt["task_id"])
+        except BridgeTransportError:
+            report.transport_errors += 1
+            return
+        if status is None:
+            event = TaskEvent(f"bridge:{attempt['task_id']}:missing",
+                              attempt["attempt_id"], attempt["task_id"],
+                              Outcome.FAILURE, reason="task missing in Bridge")
+        else:
+            event = event_from_status(attempt, status)
+        if event is None and attempt["deadline_at"] is not None \
+                and self.engine.clock() > attempt["deadline_at"]:
+            event = TaskEvent(f"deadline:{attempt['attempt_id']}", attempt["attempt_id"],
+                              attempt["task_id"], Outcome.TIMEOUT,
+                              reason="workflow deadline exceeded")
+        if event is not None:
+            self.engine.apply_event(event)
+            report.events += 1

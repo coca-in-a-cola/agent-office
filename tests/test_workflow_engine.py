@@ -7,14 +7,22 @@ or Hermes state is read or written.
 from __future__ import annotations
 
 import dataclasses
+import json
 from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
+from unittest import mock
 
+from agent_office.workflow import bridge_port as bp
+from agent_office.workflow.bridge_port import FakeBridge
+from agent_office.workflow.coordinator import Coordinator
 from agent_office.workflow.definitions import (
     DefinitionError, NodeDefinition, Outcome, Target, Transition,
     WorkflowDefinition,
+)
+from agent_office.workflow.engine import (
+    ApprovalError, CorrelationError, Policy, TaskEvent, WorkflowEngine,
 )
 from agent_office.workflow.storage import RepositoryError, WorkflowRepository
 from agent_office.workflow.release_workflow import (
@@ -228,3 +236,208 @@ class RepositoryTests(TempDirCase):
         self.assertEqual(len(reopened.transitions("r1")), 1)
         self.assertEqual(reopened.load_definition(self.digest).definition_hash,
                          self.digest)
+
+
+# ---------------------------------------------------------------------------
+# Engine / coordinator harness
+# ---------------------------------------------------------------------------
+
+def D(c: str) -> str:
+    return "sha256:" + c * 64
+
+
+SHA1, SHA2 = "1111111aaaa", "2222222bbbb"
+
+
+def evidence(node: str, sha: str = SHA1, **over):
+    base = {
+        "implementation": {"artifacts": {"patch": D("1")}, "producer": "implementer-a"},
+        "acceptance": {"artifacts": {"acceptance_report": D("2")},
+                       "producer": "reviewer-b"},
+        "build": {"artifacts": {"build_artifact": D("3")}, "producer": "builder-c",
+                  "command": "bun run build", "exit_code": 0},
+        "artifact_check": {"artifacts": {"artifact_check_report": D("4")},
+                           "producer": "checker-d", "checked_digest": D("3")},
+        "publication": {"artifacts": {"publication_receipt": D("5")},
+                        "producer": "publisher-e", "destination": "sandbox-preview",
+                        "published_digest": D("3"), "readback_digest": D("3")},
+        "delivery": {"artifacts": {"delivery_receipt": D("6")}, "producer": "liaison-f",
+                     "delivered_to": "owner", "acknowledged_by": "owner"},
+    }[node]
+    if node != "delivery":
+        base["source_sha"] = sha
+    base.update(over)
+    return base
+
+
+class Clock:
+    def __init__(self) -> None:
+        self.now = 1_000_000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+class Harness:
+    """One 'process': repo + engine + coordinator over persistent temp DBs."""
+
+    def __init__(self, case: TempDirCase, clock: Clock, policy: Policy = Policy()) -> None:
+        self.case, self.clock, self.policy = case, clock, policy
+        self.repo = case.open_repo()
+        self.engine = WorkflowEngine(self.repo, clock=clock, policy=policy)
+        self.bridge = FakeBridge(case.root / "fake-bridge.sqlite3")
+        self.coordinator = Coordinator(self.engine, self.bridge)
+
+    def restart(self) -> "Harness":
+        return Harness(self.case, self.clock, self.policy)
+
+    def tick(self):
+        return self.coordinator.run_until_idle()
+
+    def active(self, run_id: str = "run-1"):
+        return self.repo.active_attempt(run_id)
+
+    def finish(self, run_id: str = "run-1", state: str = bp.SUCCEEDED,
+               ev=None, error: str = "", sha: str = SHA1, tick: bool = True):
+        attempt = self.active(run_id)
+        assert attempt is not None and attempt["task_id"], attempt
+        if ev is None and state == bp.SUCCEEDED:
+            ev = evidence(attempt["node"], sha)
+        self.bridge.set_state(attempt["task_id"], state, evidence=ev, error=error,
+                              git_sha=sha)
+        if tick:
+            self.tick()
+        return attempt
+
+    def run(self, run_id: str = "run-1"):
+        return self.repo.get_run(run_id)
+
+    def gate(self, run_id: str = "run-1"):
+        return [g for g in self.repo.gates(run_id) if g["status"] == "pending"][-1]
+
+    def approve_publication(self, run_id: str = "run-1"):
+        gate = self.gate(run_id)
+        self.engine.approve(gate["gate_id"], "owner", gate["scope"])
+        self.tick()
+
+
+class EngineCase(TempDirCase):
+    policy = Policy()
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.clock = Clock()
+        self.h = Harness(self, self.clock, self.policy)
+        self.v1 = self.h.engine.register(build_release_workflow(1))
+
+    def start(self, run_id: str = "run-1") -> None:
+        self.h.engine.start_run(run_id, self.v1, {"goal": "ship feature X",
+                                                  "repo": "/tmp/sandbox-repo"})
+        self.h.tick()
+
+    def advance_to(self, node: str, run_id: str = "run-1") -> None:
+        while self.h.active(run_id) is None or self.h.active(run_id)["node"] != node:
+            if self.h.run(run_id)["status"] == "waiting_approval":
+                self.h.approve_publication(run_id)
+                continue
+            self.h.finish(run_id)
+
+    def nodes_submitted(self) -> list[str]:
+        return [json.loads(t["request_json"])["title"].split()[1]
+                for t in self.h.bridge.tasks()]
+
+
+class HappyPathTests(EngineCase):
+    def test_full_release_reaches_completed_with_one_task_per_step(self) -> None:
+        self.start()
+        self.assertEqual(self.h.active()["node"], "implementation")
+        self.advance_to("publication")
+        self.h.finish()
+        self.h.finish()
+        run = self.h.run()
+        self.assertEqual(run["status"], "completed", run["status_reason"])
+        self.assertEqual(self.nodes_submitted(), list(RELEASE_STEPS))
+        self.assertEqual(self.h.repo.transitions("run-1")[-1]["target"], "@completed")
+        self.assertEqual(run["source_sha"], SHA1)
+
+    def test_submit_request_carries_pinned_context(self) -> None:
+        self.start()
+        request = json.loads(self.h.bridge.tasks()[0]["request_json"])
+        self.assertEqual(request["executor"], "claude")
+        self.assertEqual(request["model"], "claude-opus-5-5")
+        self.assertIn(self.v1, request["goal"])
+        key = self.h.active()["idempotency_key"]
+        self.assertEqual(key, "agent-office-workflow:run-1/implementation/1/1")
+
+
+class VersionPinningTests(EngineCase):
+    def test_running_v1_ignores_v2_graph(self) -> None:
+        self.start()
+        base = build_release_workflow(2)
+        shortcut = tuple(dataclasses.replace(t, target="build")
+                         if (t.source, t.outcome) == ("implementation", Outcome.SUCCESS)
+                         else t for t in base.transitions)
+        # v2 skips acceptance (its success edge is dropped to avoid a join).
+        shortcut = tuple(dataclasses.replace(t, target="@blocked")
+                         if (t.source, t.outcome) == ("acceptance", Outcome.SUCCESS)
+                         else t for t in shortcut)
+        v2 = self.h.engine.register(dataclasses.replace(base, transitions=shortcut))
+        self.assertNotEqual(v2, self.v1)
+        restarted = self.h.restart()
+        self.h = restarted
+        self.h.finish()
+        self.assertEqual(self.h.active()["node"], "acceptance")
+        self.assertEqual(self.h.run()["definition_hash"], self.v1)
+        self.h.engine.start_run("run-2", v2, {"goal": "v2"})
+        self.h.tick()
+        self.h.finish("run-2")
+        self.assertEqual(self.h.active("run-2")["node"], "build")
+
+    def test_unknown_definition_cannot_start(self) -> None:
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.h.engine.start_run("run-x", "sha256:" + "f" * 64, {})
+        with self.assertRaises(RepositoryError):
+            self.h.repo.get_run("run-x")
+
+
+class CorrelationAndDuplicateTests(EngineCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.start()
+        self.attempt = self.h.active()
+        self.event = TaskEvent("evt-1", self.attempt["attempt_id"],
+                               self.attempt["task_id"], Outcome.SUCCESS,
+                               evidence("implementation"))
+
+    def test_foreign_task_or_unknown_attempt_is_rejected_without_receipt(self) -> None:
+        with self.assertRaises(CorrelationError):
+            self.h.engine.apply_event(dataclasses.replace(self.event, task_id="fake-task-99"))
+        with self.assertRaises(CorrelationError):
+            self.h.engine.apply_event(dataclasses.replace(self.event, attempt_id="nope"))
+        self.assertEqual(self.h.repo.receipts(self.attempt["attempt_id"]), [])
+        self.assertEqual(self.h.active()["status"], "submitted")
+
+    def test_same_event_id_and_same_attempt_are_idempotent(self) -> None:
+        first = self.h.engine.apply_event(self.event)
+        self.assertEqual(first.disposition, "applied")
+        self.assertEqual(self.h.engine.apply_event(self.event).disposition, "duplicate")
+        other = dataclasses.replace(self.event, event_id="evt-2", outcome=Outcome.FAILURE)
+        self.assertEqual(self.h.engine.apply_event(other).disposition, "duplicate")
+        self.h.tick()
+        self.h.tick()
+        self.assertEqual(self.nodes_submitted(), ["implementation", "acceptance"])
+        receipts = self.h.repo.receipts(self.attempt["attempt_id"])
+        self.assertEqual([r["disposition"] for r in receipts], ["applied", "duplicate"])
+        self.assertEqual(self.h.repo.get_attempt(self.attempt["attempt_id"])["status"],
+                         "succeeded")
+
+    def test_bridge_poll_and_wake_event_for_same_completion_dedupe(self) -> None:
+        self.h.engine.apply_event(self.event)       # wake/outbox delivery
+        self.h.bridge.set_state(self.attempt["task_id"], bp.SUCCEEDED,
+                                evidence=evidence("implementation"))
+        for _ in range(3):
+            self.h.restart().tick()                 # repeated polls after restarts
+        self.assertEqual(self.nodes_submitted(), ["implementation", "acceptance"])
