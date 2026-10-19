@@ -34,6 +34,8 @@ ATTEMPT_STATUS = {
     Outcome.APPROVAL_WAIT: "awaiting_approval",
 }
 FAILURE_STATUSES = ("failed", "timed_out")
+# Operator-authorized attempts allowed per iteration beyond node.max_attempts.
+AUTHORIZED_RETRY_LIMIT = 1
 
 
 class CorrelationError(Exception):
@@ -42,6 +44,10 @@ class CorrelationError(Exception):
 
 class ApprovalError(Exception):
     """Approval decision does not match a pending, current, in-scope gate."""
+
+
+class ControlError(Exception):
+    """Operator command (pause/resume/retry) is not allowed in this run state."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -561,12 +567,12 @@ class WorkflowEngine:
             return EventResult("applied", self.repo.get_run(run["run_id"])["status"],
                                Target.RETRY.value, next_attempt)
 
-    def resume_due(self) -> list[str]:
+    def resume_due(self, skip: frozenset[str] = frozenset()) -> list[str]:
         """Start a fresh attempt for quota-blocked runs whose due time passed."""
         now = self.clock()
         started: list[str] = []
         for run in self.repo.runs_with_status("quota_wait"):
-            if run["due_at"] is None or run["due_at"] > now:
+            if run["due_at"] is None or run["due_at"] > now or run["run_id"] in skip:
                 continue
             with self.repo.transaction():
                 run = self.repo.get_run(run["run_id"])
@@ -586,3 +592,74 @@ class WorkflowEngine:
         now = self.clock()
         with self.repo.transaction():
             self._block(run_id, reason, now)
+
+    # -- operator controls ---------------------------------------------------
+    def pause_run(self, run_id: str, actor: str, reason: str = "") -> None:
+        """Stop coordinator advancement of this run; Bridge cancel still flows."""
+        now = self.clock()
+        with self.repo.transaction():
+            run = self.repo.get_run(run_id)
+            if run["status"] in TERMINAL_RUN_STATUSES:
+                raise ControlError(f"{run_id} is {run['status']}")
+            control = self.repo.get_control(run_id)
+            if control is not None and control["paused"]:
+                raise ControlError(f"{run_id} is already paused")
+            self.repo.set_paused(run_id, True, actor, reason, now)
+            self.repo.append_transition(run_id, None, None, run["current_node"],
+                                        "paused", run["status"],
+                                        _note(actor, reason), now)
+
+    def resume_run(self, run_id: str, actor: str, reason: str = "") -> None:
+        now = self.clock()
+        with self.repo.transaction():
+            run = self.repo.get_run(run_id)
+            control = self.repo.get_control(run_id)
+            if control is None or not control["paused"]:
+                raise ControlError(f"{run_id} is not paused")
+            self.repo.set_paused(run_id, False, actor, reason, now)
+            self.repo.append_transition(run_id, None, None, run["current_node"],
+                                        "resumed", run["status"],
+                                        _note(actor, reason), now)
+
+    def authorize_retry(self, run_id: str, actor: str, reason: str = "",
+                        confirm_side_effect: bool = False) -> str:
+        """Explicit, bounded re-run of the failed/timed-out node of a blocked run.
+
+        Only that node is re-attempted (same iteration); successors follow the
+        pinned graph. Side-effecting nodes need confirm_side_effect, and an
+        attempt whose Bridge submission was never confirmed must be reconciled
+        first, so a retry never duplicates work Bridge may already hold.
+        """
+        now = self.clock()
+        with self.repo.transaction():
+            run = self.repo.get_run(run_id)
+            if run["status"] != "blocked":
+                raise ControlError(f"{run_id} is {run['status']}, not blocked")
+            if self.repo.active_attempt(run_id) is not None or not run["current_node"]:
+                raise ControlError(f"{run_id} has no retryable node")
+            definition = self.definition_for(run)
+            node = definition.node(run["current_node"])
+            history = self.repo.attempts(run_id, node.name)
+            if not history or history[-1]["status"] not in FAILURE_STATUSES:
+                raise ControlError(f"{node.name}: last attempt is not failed/timed out")
+            last = history[-1]
+            if last["task_id"] is None:
+                raise ControlError(f"{last['attempt_id']}: Bridge submission never "
+                                   "confirmed; reconcile before retrying")
+            if node.side_effecting and not confirm_side_effect:
+                raise ControlError(f"{node.name} is side-effecting; retry requires "
+                                   "confirm_side_effect")
+            used = len(self.repo.attempts(run_id, node.name, last["iteration"]))
+            limit = node.max_attempts + AUTHORIZED_RETRY_LIMIT
+            if used >= limit:
+                raise ControlError(f"{node.name}: {used}/{limit} attempts used "
+                                   "(authorized retry bound reached)")
+            note = f"authorized retry by {_note(actor, reason)}"
+            self.repo.append_transition(run_id, last["attempt_id"], None, node.name,
+                                        "retry_authorized", node.name, note, now)
+            return self._new_attempt(run, node, last["iteration"], now,
+                                     f"{note} (after {last['attempt_id']})")
+
+
+def _note(actor: str, reason: str) -> str:
+    return f"{actor}: {reason}" if reason else actor

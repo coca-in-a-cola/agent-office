@@ -146,6 +146,14 @@ CREATE TABLE IF NOT EXISTS approval_gates (
     expires_at REAL,
     created_at REAL NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS run_controls (
+    run_id TEXT PRIMARY KEY REFERENCES workflow_runs(run_id),
+    paused INTEGER NOT NULL DEFAULT 0 CHECK (paused IN (0, 1)),
+    actor TEXT NOT NULL DEFAULT '',
+    reason TEXT NOT NULL DEFAULT '',
+    updated_at REAL NOT NULL
+);
 """
 
 
@@ -160,9 +168,12 @@ def _row(row: sqlite3.Row | None) -> dict[str, Any] | None:
 class WorkflowRepository:
     """Owns its own connection; never shares Office fail-open write paths."""
 
-    def __init__(self, db_path: str | Path) -> None:
+    def __init__(self, db_path: str | Path, check_same_thread: bool = True) -> None:
         self.db_path = Path(db_path)
-        self.db = sqlite3.connect(self.db_path, timeout=30.0, isolation_level=None)
+        # check_same_thread=False only for callers that serialise access
+        # themselves (the HTTP service holds one lock around every call).
+        self.db = sqlite3.connect(self.db_path, timeout=30.0, isolation_level=None,
+                                  check_same_thread=check_same_thread)
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA foreign_keys = ON")
         self.db.execute("PRAGMA journal_mode = WAL")
@@ -221,6 +232,11 @@ class WorkflowRepository:
             raise RepositoryError(f"definition {definition_hash} failed hash check")
         return definition
 
+    def list_definitions(self) -> list[dict[str, Any]]:
+        return [dict(r) for r in self.db.execute(
+            "SELECT definition_hash, name, version, created_at FROM workflow_definitions"
+            " ORDER BY name, version")]
+
     # -- runs ------------------------------------------------------------
     def insert_run(self, run_id: str, definition_hash: str,
                    inputs: Mapping[str, Any], now: float) -> None:
@@ -251,6 +267,30 @@ class WorkflowRepository:
         return [dict(r) for r in self.db.execute(
             "SELECT * FROM workflow_runs WHERE status=? ORDER BY created_at, run_id",
             (status,))]
+
+    def list_runs(self, limit: int = 200) -> list[dict[str, Any]]:
+        return [dict(r) for r in self.db.execute(
+            "SELECT * FROM workflow_runs ORDER BY created_at DESC, run_id LIMIT ?",
+            (limit,))]
+
+    # -- operator controls -------------------------------------------------
+    def set_paused(self, run_id: str, paused: bool, actor: str, reason: str,
+                   now: float) -> None:
+        self._require_tx()
+        self.db.execute(
+            "INSERT INTO run_controls(run_id, paused, actor, reason, updated_at)"
+            " VALUES (?, ?, ?, ?, ?) ON CONFLICT(run_id) DO UPDATE SET"
+            " paused=excluded.paused, actor=excluded.actor, reason=excluded.reason,"
+            " updated_at=excluded.updated_at",
+            (run_id, int(paused), actor, reason, now))
+
+    def get_control(self, run_id: str) -> dict[str, Any] | None:
+        return _row(self.db.execute("SELECT * FROM run_controls WHERE run_id=?",
+                                    (run_id,)).fetchone())
+
+    def paused_run_ids(self) -> frozenset[str]:
+        return frozenset(r["run_id"] for r in self.db.execute(
+            "SELECT run_id FROM run_controls WHERE paused=1"))
 
     # -- attempts --------------------------------------------------------
     def insert_attempt(self, attempt_id: str, run_id: str, node: str,

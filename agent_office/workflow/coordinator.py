@@ -38,10 +38,18 @@ class Coordinator:
         self.bridge = bridge
 
     def run_once(self) -> TickReport:
-        report = TickReport(resumed=len(self.engine.resume_due()))
+        # Paused runs do not advance: no new submissions, quota rechecks or
+        # outcome polling (deadlines resume with the run). Operator cancel
+        # intents still reach Bridge so pause never blocks a stop.
+        paused = self.repo.paused_run_ids()
+        report = TickReport(resumed=len(self.engine.resume_due(skip=paused)))
         for intent in self.repo.due_intents(self.engine.clock()):
+            if intent["run_id"] in paused and intent["kind"] != "cancel":
+                continue
             self._execute(intent, report)
         for attempt in self.repo.submitted_attempts():
+            if attempt["run_id"] in paused:
+                continue
             self._poll(attempt, report)
         return report
 
