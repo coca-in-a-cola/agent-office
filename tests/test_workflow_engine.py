@@ -7,12 +7,16 @@ or Hermes state is read or written.
 from __future__ import annotations
 
 import dataclasses
+from pathlib import Path
+import sqlite3
+import tempfile
 import unittest
 
 from agent_office.workflow.definitions import (
     DefinitionError, NodeDefinition, Outcome, Target, Transition,
     WorkflowDefinition,
 )
+from agent_office.workflow.storage import RepositoryError, WorkflowRepository
 from agent_office.workflow.release_workflow import (
     RELEASE_STEPS, build_release_workflow,
 )
@@ -105,3 +109,122 @@ class DefinitionTests(unittest.TestCase):
             _node("a", max_attempts=3)
         with self.assertRaises(DefinitionError):
             _node("a", requires_approval=True)
+
+
+class TempDirCase(unittest.TestCase):
+    def setUp(self) -> None:
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+        self.db_path = self.root / "workflow.sqlite3"
+
+    def open_repo(self) -> WorkflowRepository:
+        repo = WorkflowRepository(self.db_path)
+        self.addCleanup(repo.close)
+        return repo
+
+
+class RepositoryTests(TempDirCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.repo = self.open_repo()
+        self.wf = build_release_workflow()
+        with self.repo.transaction():
+            self.digest = self.repo.register_definition(self.wf, 1.0)
+            self.repo.insert_run("r1", self.digest, {"goal": "g"}, 1.0)
+            self.repo.insert_attempt("r1/implementation/1/1", "r1",
+                                     "implementation", 1, 1, "pending", 1.0)
+
+    def test_register_is_idempotent_but_version_reuse_fails_closed(self) -> None:
+        with self.repo.transaction():
+            self.assertEqual(self.repo.register_definition(self.wf, 2.0), self.digest)
+        nodes = tuple(dataclasses.replace(n, goal="edited") for n in self.wf.nodes)
+        edited = dataclasses.replace(self.wf, nodes=nodes)
+        with self.assertRaises(sqlite3.IntegrityError):
+            with self.repo.transaction():
+                self.repo.register_definition(edited, 2.0)
+
+    def test_definitions_rows_are_immutable(self) -> None:
+        with self.assertRaisesRegex(sqlite3.IntegrityError, "immutable"):
+            with self.repo.transaction():
+                self.repo.db.execute("UPDATE workflow_definitions SET version=5")
+        with self.assertRaisesRegex(sqlite3.IntegrityError, "immutable"):
+            with self.repo.transaction():
+                self.repo.db.execute("DELETE FROM workflow_definitions")
+
+    def test_run_version_pin_cannot_be_changed(self) -> None:
+        with self.repo.transaction():
+            other = self.repo.register_definition(build_release_workflow(2), 2.0)
+        with self.assertRaisesRegex(sqlite3.IntegrityError, "pinned"):
+            with self.repo.transaction():
+                self.repo.update_run("r1", 3.0, definition_hash=other)
+        self.assertEqual(self.repo.get_run("r1")["definition_hash"], self.digest)
+
+    def test_unknown_definition_run_fails(self) -> None:
+        with self.assertRaises(sqlite3.IntegrityError):
+            with self.repo.transaction():
+                self.repo.insert_run("r2", "sha256:" + "0" * 64, {}, 1.0)
+
+    def test_tampered_definition_fails_hash_check(self) -> None:
+        self.repo.db.execute("DROP TRIGGER workflow_definitions_no_update")
+        self.repo.db.execute(
+            "UPDATE workflow_definitions SET canonical_json=replace("
+            "canonical_json, 'independent_reviewer', 'implementer')")
+        with self.assertRaises((RepositoryError, DefinitionError)):
+            self.repo.load_definition(self.digest)
+
+    def test_task_correlation_is_unique_and_immutable(self) -> None:
+        with self.repo.transaction():
+            self.repo.update_attempt("r1/implementation/1/1", task_id="t-1",
+                                     status="submitted")
+        self.assertEqual(self.repo.attempt_for_task("t-1")["attempt_id"],
+                         "r1/implementation/1/1")
+        with self.assertRaisesRegex(sqlite3.IntegrityError, "immutable"):
+            with self.repo.transaction():
+                self.repo.update_attempt("r1/implementation/1/1", task_id="t-2")
+        with self.repo.transaction():
+            self.repo.insert_run("r2", self.digest, {}, 1.0)
+            self.repo.insert_attempt("r2/implementation/1/1", "r2",
+                                     "implementation", 1, 1, "pending", 1.0)
+        with self.assertRaises(sqlite3.IntegrityError):
+            with self.repo.transaction():
+                self.repo.update_attempt("r2/implementation/1/1", task_id="t-1")
+
+    def test_single_active_attempt_per_run(self) -> None:
+        with self.assertRaises(sqlite3.IntegrityError):
+            with self.repo.transaction():
+                self.repo.insert_attempt("r1/implementation/1/2", "r1",
+                                         "implementation", 1, 2, "pending", 2.0)
+
+    def test_failure_rolls_back_whole_transaction(self) -> None:
+        with self.assertRaises(RuntimeError):
+            with self.repo.transaction():
+                self.repo.update_run("r1", 5.0, status="blocked")
+                self.repo.append_transition("r1", None, None, None, "failure",
+                                            "@blocked", "x", 5.0)
+                raise RuntimeError("crash mid-transition")
+        self.assertEqual(self.repo.get_run("r1")["status"], "running")
+        self.assertEqual(self.repo.transitions("r1"), [])
+
+    def test_mutation_outside_transaction_and_nesting_fail(self) -> None:
+        with self.assertRaises(RepositoryError):
+            self.repo.update_run("r1", 2.0, status="blocked")
+        with self.assertRaises(RepositoryError):
+            with self.repo.transaction():
+                with self.repo.transaction():
+                    pass
+        with self.assertRaises(sqlite3.IntegrityError):
+            with self.repo.transaction():
+                self.repo.update_run("r1", 2.0, status="not-a-status")
+
+    def test_journal_is_append_only_and_survives_reopen(self) -> None:
+        with self.repo.transaction():
+            self.repo.append_transition("r1", None, None, None, "start",
+                                        "implementation", "", 1.0)
+        with self.assertRaisesRegex(sqlite3.IntegrityError, "append-only"):
+            with self.repo.transaction():
+                self.repo.db.execute("DELETE FROM transitions")
+        reopened = self.open_repo()
+        self.assertEqual(len(reopened.transitions("r1")), 1)
+        self.assertEqual(reopened.load_definition(self.digest).definition_hash,
+                         self.digest)
