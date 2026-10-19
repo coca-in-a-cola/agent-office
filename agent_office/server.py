@@ -54,11 +54,21 @@ DEFAULT_WORKSTATIONS: list[dict[str, Any]] = [
     {
         "id": "coder",
         "profile_name": "Coder",
-        "role": "Coder",
+        "role": "Game Developer (Godot)",
         "status": "idle",
         "current_model": "anthropic/claude-3-5-sonnet",
-        "capabilities": ["python", "typescript", "architecture", "algorithms"],
+        "capabilities": ["godot4", "gdscript", "c_sharp", "shaders", "physics", "rendering"],
         "metadata": {"desk": "engineering", "position": [0, 1], "avatar": "coder"},
+    },
+    {
+        "id": "webdev",
+        "profile_name": "WebDev",
+        "role": "Web Engineer",
+        "status": "idle",
+        "current_model": "anthropic/claude-3-5-sonnet",
+        "capabilities": ["react", "typescript", "tailwind", "vite", "web_apis",
+                         "browser_testing", "performance"],
+        "metadata": {"desk": "frontend", "position": [2, 0], "avatar": "webdev"},
     },
     {
         "id": "devops",
@@ -563,6 +573,7 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
         tyler: {x: 0, y: -70},
         coder: {x: -140, y: 0},
         artist: {x: 140, y: 0},
+        webdev: {x: 70, y: -70},
         devops: {x: -70, y: 70},
         qa: {x: 70, y: 70}
       };
