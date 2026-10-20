@@ -10,6 +10,7 @@ attempt per run, immutable task correlation, append-only journal).
 from __future__ import annotations
 
 from contextlib import contextmanager
+import dataclasses
 import json
 from pathlib import Path
 import sqlite3
@@ -165,6 +166,10 @@ def _row(row: sqlite3.Row | None) -> dict[str, Any] | None:
     return dict(row) if row is not None else None
 
 
+def _normalize_definition_content(data: Mapping[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in data.items() if k not in ("version", "definition_hash")}
+
+
 class WorkflowRepository:
     """Owns its own connection; never shares Office fail-open write paths."""
 
@@ -220,6 +225,57 @@ class WorkflowRepository:
                 (digest, definition.name, definition.version,
                  definition.canonical_json(), now))
         return digest
+
+    def register_canonical_definition(self, definition: WorkflowDefinition, now: float) -> str:
+        self._require_tx()
+        candidate_data = definition.to_json()
+        candidate_norm = _normalize_definition_content(candidate_data)
+
+        rows = self.db.execute(
+            "SELECT definition_hash, version, canonical_json FROM workflow_definitions"
+            " WHERE name=? ORDER BY version DESC",
+            (definition.name,)).fetchall()
+
+        for row in rows:
+            stored_data = json.loads(row["canonical_json"])
+            if _normalize_definition_content(stored_data) == candidate_norm:
+                return str(row["definition_hash"])
+
+        existing_versions = {int(r["version"]) for r in rows}
+        if definition.version in existing_versions:
+            next_version = max(existing_versions) + 1
+        else:
+            next_version = definition.version
+
+        target_def = (
+            dataclasses.replace(definition, version=next_version)
+            if next_version != definition.version
+            else definition
+        )
+        digest = target_def.definition_hash
+
+        existing = self.db.execute(
+            "SELECT 1 FROM workflow_definitions WHERE definition_hash=?",
+            (digest,)).fetchone()
+        if existing is not None:
+            return digest
+
+        try:
+            self.db.execute(
+                "INSERT INTO workflow_definitions VALUES (?, ?, ?, ?, ?)",
+                (digest, target_def.name, target_def.version,
+                 target_def.canonical_json(), now))
+            return digest
+        except sqlite3.IntegrityError:
+            rows = self.db.execute(
+                "SELECT definition_hash, version, canonical_json FROM workflow_definitions"
+                " WHERE name=? ORDER BY version DESC",
+                (definition.name,)).fetchall()
+            for row in rows:
+                stored_data = json.loads(row["canonical_json"])
+                if _normalize_definition_content(stored_data) == candidate_norm:
+                    return str(row["definition_hash"])
+            return self.register_canonical_definition(definition, now)
 
     def load_definition(self, definition_hash: str) -> WorkflowDefinition:
         row = self.db.execute(

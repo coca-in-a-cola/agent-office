@@ -99,7 +99,9 @@ class WorkflowService:
         self.engine = WorkflowEngine(self.repo, clock=clock)
         self.coordinator = Coordinator(self.engine, bridge)
         self.bridge_kind = bridge_kind
-        self.canonical_hash = self.engine.register(build_release_workflow())
+        with self.repo.transaction():
+            self.canonical_hash = self.repo.register_canonical_definition(
+                build_release_workflow(), clock())
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
