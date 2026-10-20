@@ -27,7 +27,7 @@ RELEASE_STEPS = (IMPLEMENTATION, ACCEPTANCE, BUILD, ARTIFACT_CHECK,
                  PUBLICATION, DELIVERY)
 
 _EXECUTORS = ("claude", "omo")
-_MODELS = ("claude-opus-5-5",)
+_MODELS = ("claude-opus-5-5", "antigravity/gemini-3.8-flash-high", "openai-broker/gpt-6.1-sol")
 
 
 def _branches(source: str, **targets: str) -> tuple[Transition, ...]:

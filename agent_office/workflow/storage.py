@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import dataclasses
+import hashlib
 import json
 from pathlib import Path
 import sqlite3
@@ -26,6 +27,150 @@ ACTIVE_ATTEMPT_STATUSES = ("pending", "submitted")
 INTENT_KINDS = ("submit", "cancel", "inspect")
 INTENT_STATUSES = ("pending", "done", "void")
 GATE_STATUSES = ("pending", "approved", "rejected", "revoked")
+APPROVAL_STATUSES = ("active", "revoked", "expired", "consumed")
+SIDE_EFFECT_STATES = ("prepared", "in_flight", "confirmed", "failed_no_effect", "reconciliation_required")
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class EvidenceRef:
+    evidence_id: str
+    run_id: str
+    attempt_id: str
+    bridge_task_id: str | None
+    producer: str
+    role: str
+    input_sha: str
+    output_digests: Mapping[str, str]
+    criteria: tuple[str, ...]
+    reviewer: str | None
+    created_at: float
+    fingerprint_hash: str
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "evidence_id": self.evidence_id,
+            "run_id": self.run_id,
+            "attempt_id": self.attempt_id,
+            "bridge_task_id": self.bridge_task_id,
+            "producer": self.producer,
+            "role": self.role,
+            "input_sha": self.input_sha,
+            "output_digests": dict(self.output_digests),
+            "criteria": list(self.criteria),
+            "reviewer": self.reviewer,
+            "created_at": self.created_at,
+            "fingerprint_hash": self.fingerprint_hash,
+        }
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class ApprovalRecord:
+    approval_id: str
+    run_id: str
+    version: int
+    target: str
+    digest: str
+    params: Mapping[str, Any]
+    intent_hash: str
+    approver: str
+    granted_scope: str
+    expiry_at: float
+    status: str
+    created_at: float
+    updated_at: float
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "approval_id": self.approval_id,
+            "run_id": self.run_id,
+            "version": self.version,
+            "target": self.target,
+            "digest": self.digest,
+            "params": dict(self.params),
+            "intent_hash": self.intent_hash,
+            "approver": self.approver,
+            "granted_scope": self.granted_scope,
+            "expiry_at": self.expiry_at,
+            "status": self.status,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class SideEffectRecord:
+    effect_id: str
+    run_id: str
+    attempt_id: str
+    approval_id: str | None
+    target: str
+    action_key: str
+    digest: str
+    state: str
+    error_message: str
+    created_at: float
+    updated_at: float
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "effect_id": self.effect_id,
+            "run_id": self.run_id,
+            "attempt_id": self.attempt_id,
+            "approval_id": self.approval_id,
+            "target": self.target,
+            "action_key": self.action_key,
+            "digest": self.digest,
+            "state": self.state,
+            "error_message": self.error_message,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+
+def compute_evidence_fingerprint(
+    run_id: str,
+    attempt_id: str,
+    bridge_task_id: str | None,
+    producer: str,
+    role: str,
+    input_sha: str,
+    output_digests: Mapping[str, str],
+    criteria: tuple[str, ...] | list[str],
+    reviewer: str | None,
+    created_at: float,
+) -> str:
+    canonical_payload = {
+        "attempt_id": attempt_id,
+        "bridge_task_id": bridge_task_id or "",
+        "created_at": round(float(created_at), 6),
+        "criteria": sorted(str(c) for c in criteria),
+        "input_sha": str(input_sha),
+        "output_digests": {str(k): str(v) for k, v in sorted(output_digests.items())},
+        "producer": str(producer),
+        "reviewer": str(reviewer) if reviewer else None,
+        "role": str(role),
+        "run_id": str(run_id),
+    }
+    raw = json.dumps(canonical_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return "sha256:" + hashlib.sha256(raw).hexdigest()
+
+
+def compute_intent_hash(
+    run_id: str,
+    version: int,
+    target: str,
+    digest: str,
+    params: Mapping[str, Any],
+) -> str:
+    canonical_payload = {
+        "digest": str(digest),
+        "params": json.loads(json.dumps(dict(params), sort_keys=True)),
+        "run_id": str(run_id),
+        "target": str(target),
+        "version": int(version),
+    }
+    raw = json.dumps(canonical_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return "sha256:" + hashlib.sha256(raw).hexdigest()
 
 
 def _check(column: str, values: tuple[str, ...]) -> str:
@@ -153,6 +298,57 @@ CREATE TABLE IF NOT EXISTS run_controls (
     paused INTEGER NOT NULL DEFAULT 0 CHECK (paused IN (0, 1)),
     actor TEXT NOT NULL DEFAULT '',
     reason TEXT NOT NULL DEFAULT '',
+    updated_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS evidence_records (
+    evidence_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES workflow_runs(run_id),
+    attempt_id TEXT NOT NULL REFERENCES node_attempts(attempt_id),
+    bridge_task_id TEXT,
+    producer TEXT NOT NULL,
+    role TEXT NOT NULL,
+    input_sha TEXT NOT NULL,
+    output_digests_json TEXT NOT NULL,
+    criteria_json TEXT NOT NULL,
+    reviewer TEXT,
+    fingerprint_hash TEXT NOT NULL,
+    created_at REAL NOT NULL
+);
+CREATE TRIGGER IF NOT EXISTS evidence_records_no_update
+    BEFORE UPDATE ON evidence_records
+    BEGIN SELECT RAISE(ABORT, 'evidence records are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS evidence_records_no_delete
+    BEFORE DELETE ON evidence_records
+    BEGIN SELECT RAISE(ABORT, 'evidence records are immutable'); END;
+
+CREATE TABLE IF NOT EXISTS approval_records (
+    approval_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES workflow_runs(run_id),
+    version INTEGER NOT NULL,
+    target TEXT NOT NULL,
+    digest TEXT NOT NULL,
+    params_json TEXT NOT NULL,
+    intent_hash TEXT NOT NULL,
+    approver TEXT NOT NULL,
+    granted_scope TEXT NOT NULL,
+    expiry_at REAL NOT NULL,
+    status TEXT NOT NULL {_check("status", APPROVAL_STATUSES)},
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS side_effect_records (
+    effect_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES workflow_runs(run_id),
+    attempt_id TEXT NOT NULL REFERENCES node_attempts(attempt_id),
+    approval_id TEXT REFERENCES approval_records(approval_id),
+    target TEXT NOT NULL,
+    action_key TEXT NOT NULL,
+    digest TEXT NOT NULL,
+    state TEXT NOT NULL {_check("state", SIDE_EFFECT_STATES)},
+    error_message TEXT NOT NULL DEFAULT '',
+    created_at REAL NOT NULL,
     updated_at REAL NOT NULL
 );
 """
@@ -512,6 +708,371 @@ class WorkflowRepository:
             (*fields.values(), gate_id))
         if cur.rowcount != 1:
             raise RepositoryError(f"unknown gate {gate_id}")
+
+    def insert_evidence(
+        self,
+        run_id: str,
+        attempt_id: str,
+        bridge_task_id: str | None,
+        producer: str,
+        role: str,
+        input_sha: str,
+        output_digests: Mapping[str, str],
+        criteria: tuple[str, ...] | list[str],
+        reviewer: str | None,
+        now: float,
+        evidence_id: str | None = None,
+    ) -> EvidenceRef:
+        self._require_tx()
+        if reviewer is not None and reviewer.strip() and reviewer.strip() == producer.strip():
+            raise RepositoryError("reviewer must be distinct from producer for independent acceptance")
+
+        fingerprint = compute_evidence_fingerprint(
+            run_id=run_id,
+            attempt_id=attempt_id,
+            bridge_task_id=bridge_task_id,
+            producer=producer,
+            role=role,
+            input_sha=input_sha,
+            output_digests=output_digests,
+            criteria=criteria,
+            reviewer=reviewer,
+            created_at=now,
+        )
+        eid = evidence_id or f"ev-{fingerprint.split(':')[-1][:16]}"
+        self.db.execute(
+            "INSERT INTO evidence_records(evidence_id, run_id, attempt_id, bridge_task_id,"
+            " producer, role, input_sha, output_digests_json, criteria_json, reviewer,"
+            " fingerprint_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (eid, run_id, attempt_id, bridge_task_id, producer, role, input_sha,
+             json.dumps(dict(output_digests), sort_keys=True),
+             json.dumps(list(criteria)), reviewer, fingerprint, now),
+        )
+        return EvidenceRef(
+            evidence_id=eid,
+            run_id=run_id,
+            attempt_id=attempt_id,
+            bridge_task_id=bridge_task_id,
+            producer=producer,
+            role=role,
+            input_sha=input_sha,
+            output_digests=dict(output_digests),
+            criteria=tuple(criteria),
+            reviewer=reviewer,
+            created_at=now,
+            fingerprint_hash=fingerprint,
+        )
+
+    def get_evidence(self, evidence_id: str) -> EvidenceRef:
+        row = _row(self.db.execute("SELECT * FROM evidence_records WHERE evidence_id=?",
+                                   (evidence_id,)).fetchone())
+        if row is None:
+            raise RepositoryError(f"unknown evidence {evidence_id}")
+        return self._evidence_from_row(row)
+
+    def evidence_for_attempt(self, attempt_id: str) -> list[EvidenceRef]:
+        return [self._evidence_from_row(dict(r)) for r in self.db.execute(
+            "SELECT * FROM evidence_records WHERE attempt_id=? ORDER BY created_at, evidence_id",
+            (attempt_id,))]
+
+    def evidence_for_run(self, run_id: str) -> list[EvidenceRef]:
+        return [self._evidence_from_row(dict(r)) for r in self.db.execute(
+            "SELECT * FROM evidence_records WHERE run_id=? ORDER BY created_at, evidence_id",
+            (run_id,))]
+
+    @staticmethod
+    def _evidence_from_row(row: Mapping[str, Any]) -> EvidenceRef:
+        return EvidenceRef(
+            evidence_id=str(row["evidence_id"]),
+            run_id=str(row["run_id"]),
+            attempt_id=str(row["attempt_id"]),
+            bridge_task_id=row["bridge_task_id"],
+            producer=str(row["producer"]),
+            role=str(row["role"]),
+            input_sha=str(row["input_sha"]),
+            output_digests=json.loads(row["output_digests_json"] or "{}"),
+            criteria=tuple(json.loads(row["criteria_json"] or "[]")),
+            reviewer=row["reviewer"],
+            created_at=float(row["created_at"]),
+            fingerprint_hash=str(row["fingerprint_hash"]),
+        )
+
+    def insert_approval_record(
+        self,
+        approval_id: str,
+        run_id: str,
+        version: int,
+        target: str,
+        digest: str,
+        params: Mapping[str, Any],
+        approver: str,
+        granted_scope: str,
+        expiry_at: float,
+        now: float,
+        status: str = "active",
+    ) -> ApprovalRecord:
+        self._require_tx()
+        intent_hash = compute_intent_hash(
+            run_id=run_id,
+            version=version,
+            target=target,
+            digest=digest,
+            params=params,
+        )
+        self.db.execute(
+            "INSERT INTO approval_records(approval_id, run_id, version, target, digest,"
+            " params_json, intent_hash, approver, granted_scope, expiry_at, status,"
+            " created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (approval_id, run_id, version, target, digest,
+             json.dumps(dict(params), sort_keys=True),
+             intent_hash, approver, granted_scope, expiry_at, status, now, now),
+        )
+        return ApprovalRecord(
+            approval_id=approval_id,
+            run_id=run_id,
+            version=version,
+            target=target,
+            digest=digest,
+            params=dict(params),
+            intent_hash=intent_hash,
+            approver=approver,
+            granted_scope=granted_scope,
+            expiry_at=expiry_at,
+            status=status,
+            created_at=now,
+            updated_at=now,
+        )
+
+    def get_approval_record(self, approval_id: str) -> ApprovalRecord:
+        row = _row(self.db.execute("SELECT * FROM approval_records WHERE approval_id=?",
+                                   (approval_id,)).fetchone())
+        if row is None:
+            raise RepositoryError(f"unknown approval record {approval_id}")
+        return self._approval_from_row(row)
+
+    def approval_records_for_run(self, run_id: str) -> list[ApprovalRecord]:
+        return [self._approval_from_row(dict(r)) for r in self.db.execute(
+            "SELECT * FROM approval_records WHERE run_id=? ORDER BY created_at, approval_id",
+            (run_id,))]
+
+    def update_approval_status(self, approval_id: str, status: str, now: float) -> None:
+        self._require_tx()
+        if status not in APPROVAL_STATUSES:
+            raise RepositoryError(f"invalid approval status {status}")
+        cur = self.db.execute(
+            "UPDATE approval_records SET status=?, updated_at=? WHERE approval_id=?",
+            (status, now, approval_id))
+        if cur.rowcount != 1:
+            raise RepositoryError(f"unknown approval record {approval_id}")
+
+    def revoke_approval(self, approval_id: str, now: float) -> None:
+        self.update_approval_status(approval_id, "revoked", now)
+
+    def active_approval_for_target(
+        self,
+        run_id: str,
+        target: str,
+        digest: str,
+        now: float,
+        version: int | None = None,
+    ) -> ApprovalRecord | None:
+        self._require_tx()
+        rows = [dict(r) for r in self.db.execute(
+            "SELECT * FROM approval_records WHERE run_id=? AND target=? ORDER BY created_at DESC",
+            (run_id, target))]
+        for r in rows:
+            if r["status"] == "active":
+                if now > float(r["expiry_at"]):
+                    self.db.execute(
+                        "UPDATE approval_records SET status='expired', updated_at=? WHERE approval_id=?",
+                        (now, r["approval_id"]))
+                    continue
+                if version is not None and int(r["version"]) != version:
+                    continue
+                if r["digest"] != digest:
+                    continue
+                params = json.loads(r["params_json"] or "{}")
+                expected_hash = compute_intent_hash(
+                    run_id=r["run_id"],
+                    version=int(r["version"]),
+                    target=r["target"],
+                    digest=digest,
+                    params=params,
+                )
+                if r["intent_hash"] != expected_hash:
+                    continue
+                return self._approval_from_row(r)
+        return None
+
+    @staticmethod
+    def _approval_from_row(row: Mapping[str, Any]) -> ApprovalRecord:
+        return ApprovalRecord(
+            approval_id=str(row["approval_id"]),
+            run_id=str(row["run_id"]),
+            version=int(row["version"]),
+            target=str(row["target"]),
+            digest=str(row["digest"]),
+            params=json.loads(row["params_json"] or "{}"),
+            intent_hash=str(row["intent_hash"]),
+            approver=str(row["approver"]),
+            granted_scope=str(row["granted_scope"]),
+            expiry_at=float(row["expiry_at"]),
+            status=str(row["status"]),
+            created_at=float(row["created_at"]),
+            updated_at=float(row["updated_at"]),
+        )
+
+    def prepare_side_effect(
+        self,
+        effect_id: str,
+        run_id: str,
+        attempt_id: str,
+        approval_id: str | None,
+        target: str,
+        action_key: str,
+        digest: str,
+        now: float,
+    ) -> SideEffectRecord:
+        self._require_tx()
+        self.db.execute(
+            "INSERT INTO side_effect_records(effect_id, run_id, attempt_id, approval_id,"
+            " target, action_key, digest, state, error_message, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, 'prepared', '', ?, ?)",
+            (effect_id, run_id, attempt_id, approval_id, target, action_key, digest, now, now),
+        )
+        return SideEffectRecord(
+            effect_id=effect_id,
+            run_id=run_id,
+            attempt_id=attempt_id,
+            approval_id=approval_id,
+            target=target,
+            action_key=action_key,
+            digest=digest,
+            state="prepared",
+            error_message="",
+            created_at=now,
+            updated_at=now,
+        )
+
+    def transition_side_effect(
+        self,
+        effect_id: str,
+        to_state: str,
+        now: float,
+        error_message: str = "",
+        graph_version: int | None = None,
+        scope: str | None = None,
+    ) -> SideEffectRecord:
+        self._require_tx()
+        if to_state not in SIDE_EFFECT_STATES:
+            raise RepositoryError(f"unknown side-effect state {to_state}")
+        rec = self.get_side_effect(effect_id)
+        current = rec.state
+        allowed = {
+            "prepared": ("in_flight",),
+            "in_flight": ("confirmed", "failed_no_effect", "reconciliation_required"),
+        }
+        if to_state not in allowed.get(current, ()):
+            raise RepositoryError(
+                f"invalid side-effect transition: {current} -> {to_state}"
+            )
+
+        if to_state == "in_flight":
+            if rec.approval_id:
+                approval = self.get_approval_record(rec.approval_id)
+                if approval.status != "active":
+                    raise RepositoryError(
+                        f"cannot transition side-effect to in_flight: approval {approval.approval_id} is {approval.status}"
+                    )
+                if now > approval.expiry_at:
+                    self.update_approval_status(approval.approval_id, "expired", now)
+                    raise RepositoryError(
+                        f"cannot transition side-effect to in_flight: approval {approval.approval_id} has expired"
+                    )
+                if approval.run_id != rec.run_id:
+                    raise RepositoryError(
+                        f"cannot transition side-effect to in_flight: run_id mismatch ({approval.run_id} != {rec.run_id})"
+                    )
+                if approval.target != rec.target:
+                    raise RepositoryError(
+                        f"cannot transition side-effect to in_flight: target mismatch ({approval.target} != {rec.target})"
+                    )
+                if graph_version is not None and approval.version != graph_version:
+                    raise RepositoryError(
+                        f"cannot transition side-effect to in_flight: graph_version mismatch ({approval.version} != {graph_version})"
+                    )
+                if approval.digest != rec.digest:
+                    raise RepositoryError(
+                        f"cannot transition side-effect to in_flight: digest mismatch ({approval.digest} != {rec.digest})"
+                    )
+                expected_hash = compute_intent_hash(
+                    run_id=approval.run_id,
+                    version=approval.version,
+                    target=approval.target,
+                    digest=rec.digest,
+                    params=approval.params,
+                )
+                if approval.intent_hash != expected_hash:
+                    raise RepositoryError(
+                        "cannot transition side-effect to in_flight: approval intent hash invalid"
+                    )
+                if scope is not None and approval.granted_scope != scope and not approval.granted_scope.startswith(f"{scope}:"):
+                    raise RepositoryError(
+                        f"cannot transition side-effect to in_flight: scope mismatch ({approval.granted_scope} != {scope})"
+                    )
+            elif rec.target == "publication":
+                raise RepositoryError(
+                    f"cannot transition side-effect {effect_id} to in_flight: missing required approval for {rec.target}"
+                )
+
+        cur = self.db.execute(
+            "UPDATE side_effect_records SET state=?, error_message=?, updated_at=? WHERE effect_id=?",
+            (to_state, error_message, now, effect_id),
+        )
+        if cur.rowcount != 1:
+            raise RepositoryError(f"unknown side-effect record {effect_id}")
+
+        return SideEffectRecord(
+            effect_id=rec.effect_id,
+            run_id=rec.run_id,
+            attempt_id=rec.attempt_id,
+            approval_id=rec.approval_id,
+            target=rec.target,
+            action_key=rec.action_key,
+            digest=rec.digest,
+            state=to_state,
+            error_message=error_message,
+            created_at=rec.created_at,
+            updated_at=now,
+        )
+
+    def get_side_effect(self, effect_id: str) -> SideEffectRecord:
+        row = _row(self.db.execute("SELECT * FROM side_effect_records WHERE effect_id=?",
+                                   (effect_id,)).fetchone())
+        if row is None:
+            raise RepositoryError(f"unknown side effect {effect_id}")
+        return self._side_effect_from_row(row)
+
+    def side_effects_for_run(self, run_id: str) -> list[SideEffectRecord]:
+        return [self._side_effect_from_row(dict(r)) for r in self.db.execute(
+            "SELECT * FROM side_effect_records WHERE run_id=? ORDER BY created_at, effect_id",
+            (run_id,))]
+
+    @staticmethod
+    def _side_effect_from_row(row: Mapping[str, Any]) -> SideEffectRecord:
+        return SideEffectRecord(
+            effect_id=str(row["effect_id"]),
+            run_id=str(row["run_id"]),
+            attempt_id=str(row["attempt_id"]),
+            approval_id=row["approval_id"],
+            target=str(row["target"]),
+            action_key=str(row["action_key"]),
+            digest=str(row["digest"]),
+            state=str(row["state"]),
+            error_message=str(row["error_message"] or ""),
+            created_at=float(row["created_at"]),
+            updated_at=float(row["updated_at"]),
+        )
 
 
 def _split_sql(script: str) -> list[str]:

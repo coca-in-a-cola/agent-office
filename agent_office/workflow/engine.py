@@ -19,7 +19,7 @@ from .bridge_port import (
     SubmitRequest,
 )
 from .definitions import NodeDefinition, Outcome, Target, WorkflowDefinition
-from .storage import RepositoryError, WorkflowRepository
+from .storage import RepositoryError, WorkflowRepository, compute_intent_hash
 
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 TERMINAL_RUN_STATUSES = frozenset({"cancelled", "completed"})
@@ -179,6 +179,43 @@ class WorkflowEngine:
             problem = self._verify(run, definition, node, evidence)
             if problem:
                 outcome, reason = Outcome.FAILURE, f"evidence rejected: {problem}"
+            else:
+                producer = str(evidence.get("producer") or attempt.get("producer") or "unknown")
+                reviewer = str(evidence.get("reviewer")) if evidence.get("reviewer") else None
+                artifacts = evidence.get("artifacts") if isinstance(evidence.get("artifacts"), Mapping) else {}
+                input_sha = str(evidence.get("source_sha") or run.get("source_sha") or "")
+                try:
+                    self.repo.insert_evidence(
+                        run_id=run["run_id"],
+                        attempt_id=attempt["attempt_id"],
+                        bridge_task_id=attempt.get("task_id"),
+                        producer=producer,
+                        role=node.role,
+                        input_sha=input_sha,
+                        output_digests=artifacts,
+                        criteria=node.completion_criteria,
+                        reviewer=reviewer,
+                        now=now,
+                    )
+                except RepositoryError as exc:
+                    outcome, reason = Outcome.FAILURE, f"evidence rejected: {exc}"
+
+        if node.side_effecting:
+            effect_id = f"se-{attempt['attempt_id']}"
+            try:
+                se = self.repo.get_side_effect(effect_id)
+                if se and se.state == "in_flight":
+                    if outcome is Outcome.SUCCESS:
+                        self.repo.transition_side_effect(effect_id, "confirmed", now)
+                        if se.approval_id:
+                            self.repo.update_approval_status(se.approval_id, "consumed", now)
+                    elif outcome is Outcome.TIMEOUT or outcome is Outcome.CANCEL:
+                        self.repo.transition_side_effect(effect_id, "reconciliation_required", now, reason)
+                    else:
+                        self.repo.transition_side_effect(effect_id, "failed_no_effect", now, reason)
+            except RepositoryError:
+                pass
+
         self.repo.update_attempt(
             attempt["attempt_id"], status=ATTEMPT_STATUS[outcome],
             evidence_json=json.dumps(dict(evidence), sort_keys=True),
@@ -321,6 +358,24 @@ class WorkflowEngine:
                                  attempt_no, "pending", now)
         if reason:
             self.repo.update_attempt(attempt_id, reason=reason)
+        if node.side_effecting:
+            effect_id = f"se-{attempt_id}"
+            digest = self._bound_digest(run, node)
+            definition = self.definition_for(run)
+            active_approval = self.repo.active_approval_for_target(
+                run["run_id"], node.name, digest, now, version=definition.version
+            )
+            approval_id = active_approval.approval_id if active_approval else None
+            self.repo.prepare_side_effect(
+                effect_id=effect_id,
+                run_id=run["run_id"],
+                attempt_id=attempt_id,
+                approval_id=approval_id,
+                target=node.name,
+                action_key=f"agent-office-workflow:{attempt_id}:effect",
+                digest=digest,
+                now=now,
+            )
         self.repo.insert_intent(run["run_id"], attempt_id, "submit", now)
         self.repo.update_run(run["run_id"], now, status="running",
                              current_node=node.name, due_at=None,
@@ -377,6 +432,17 @@ class WorkflowEngine:
                 raise ApprovalError(f"scope {scope!r} != gate scope {gate['scope']!r}")
             definition = self.definition_for(run)
             node = definition.node(gate["node"])
+            producers_to_check = set()
+            for ref in node.independent_of:
+                prior = self.repo.latest_success(run["run_id"], ref)
+                if prior and prior.get("producer"):
+                    producers_to_check.add(prior["producer"])
+            if node.role == "independent_reviewer" or node.name == "acceptance":
+                for a in self.repo.attempts(run["run_id"]):
+                    if a.get("producer") and a["node"] != node.name:
+                        producers_to_check.add(a["producer"])
+            if approver in producers_to_check:
+                raise ApprovalError(f"producer {approver!r} cannot approve their own independent acceptance")
             if gate["evidence_digest"] != self._bound_digest(run, node) \
                     and node.requires_approval and gate["evidence_digest"]:
                 raise ApprovalError("gate evidence is stale")
@@ -388,6 +454,21 @@ class WorkflowEngine:
             else:
                 self.repo.update_gate(gate_id, status="approved", approver=approver,
                                       decided_at=now)
+                expiry_at = gate["expires_at"] or (now + (self.policy.approval_ttl_seconds or 3600.0))
+                approval_id = f"appr-{gate_id}"
+                self.repo.insert_approval_record(
+                    approval_id=approval_id,
+                    run_id=run["run_id"],
+                    version=definition.version,
+                    target=node.name,
+                    digest=gate["evidence_digest"],
+                    params={"gate_id": gate_id, "scope": scope},
+                    approver=approver,
+                    granted_scope=scope,
+                    expiry_at=expiry_at,
+                    now=now,
+                    status="active",
+                )
                 self.repo.append_transition(run["run_id"], None, None, node.name,
                                             "approved", node.name,
                                             f"{approver}: {scope}", now)
@@ -405,11 +486,13 @@ class WorkflowEngine:
                 raise ApprovalError(f"{gate_id} is {gate['status']}")
             self.repo.update_gate(gate_id, status="rejected", approver=approver,
                                   decided_at=now)
+            for appr in self.repo.approval_records_for_run(gate["run_id"]):
+                if appr.target == gate["node"] and appr.status == "active":
+                    self.repo.update_approval_status(appr.approval_id, "revoked", now)
             self._block(gate["run_id"], f"approval {gate_id} rejected by "
                                         f"{approver}: {reason}", now)
 
     def revoke(self, gate_id: str, approver: str, reason: str) -> None:
-        """Revoke a granted gate; any in-flight attempt is cancelled via Bridge."""
         now = self.clock()
         with self.repo.transaction():
             gate = self.repo.get_gate(gate_id)
@@ -417,6 +500,9 @@ class WorkflowEngine:
                 raise ApprovalError(f"{gate_id} is {gate['status']}")
             self.repo.update_gate(gate_id, status="revoked", approver=approver,
                                   decided_at=now)
+            for appr in self.repo.approval_records_for_run(gate["run_id"]):
+                if appr.target == gate["node"] and appr.status == "active":
+                    self.repo.update_approval_status(appr.approval_id, "revoked", now)
             active = self.repo.active_attempt(gate["run_id"])
             if active is not None and active["node"] == gate["node"]:
                 self.repo.void_pending_intents(active["attempt_id"], "submit", now)
@@ -500,11 +586,64 @@ class WorkflowEngine:
                   f"#{attempt['iteration']}.{attempt['attempt_no']}",
             goal=f"{node.goal}\n\nWorkflow context: {json.dumps(context, sort_keys=True)}",
             repo=inputs.get("repo", ""), working_dir=inputs.get("working_dir"),
-            executor=node.allowed_executors[0], model=node.allowed_models[0],
+            executor=(
+                inputs.get("executor") if inputs.get("executor") in node.allowed_executors
+                else (node.allowed_executors[1] if any(q in attempt.get("reason", "").lower() for q in ("quota", "limit", "429")) and len(node.allowed_executors) > 1 else node.allowed_executors[0])
+            ),
+            model=(
+                inputs.get("model") if inputs.get("model") in node.allowed_models
+                else (node.allowed_models[1] if any(q in attempt.get("reason", "").lower() for q in ("quota", "limit", "429")) and len(node.allowed_models) > 1 else node.allowed_models[0])
+            ),
             timeout_seconds=node.timeout_seconds,
             acceptance_criteria=node.completion_criteria,
             constraints=(f"role: {node.role}",
                          f"expected artifacts: {', '.join(node.expected_artifacts)}"))
+
+    def authorize_dispatch(self, attempt_id: str) -> None:
+        now = self.clock()
+        with self.repo.transaction():
+            attempt = self.repo.get_attempt(attempt_id)
+            run = self.repo.get_run(attempt["run_id"])
+            definition = self.definition_for(run)
+            node = definition.node(attempt["node"])
+            if node.side_effecting:
+                effect_id = f"se-{attempt_id}"
+                se = self.repo.get_side_effect(effect_id)
+                if node.requires_approval and not se.approval_id:
+                    raise RepositoryError(
+                        f"cannot dispatch side-effecting attempt {attempt_id}: missing required approval for {node.name}"
+                    )
+                if se.approval_id:
+                    approval = self.repo.get_approval_record(se.approval_id)
+                    if approval.run_id != run["run_id"]:
+                        raise RepositoryError(f"approval run_id mismatch: {approval.run_id} != {run['run_id']}")
+                    if approval.version != definition.version:
+                        raise RepositoryError(f"approval graph_version mismatch: {approval.version} != {definition.version}")
+                    if approval.target != node.name:
+                        raise RepositoryError(f"approval target mismatch: {approval.target} != {node.name}")
+                    expected_hash = compute_intent_hash(
+                        run_id=approval.run_id,
+                        version=approval.version,
+                        target=approval.target,
+                        digest=se.digest,
+                        params=approval.params,
+                    )
+                    if approval.intent_hash != expected_hash:
+                        raise RepositoryError("approval intent hash mismatch")
+                    if node.approval_scope:
+                        if approval.granted_scope != node.approval_scope and not approval.granted_scope.startswith(f"{node.approval_scope}:"):
+                            raise RepositoryError(f"approval scope mismatch: {approval.granted_scope} != {node.approval_scope}")
+
+                if se.state == "prepared":
+                    self.repo.transition_side_effect(
+                        effect_id, "in_flight", now,
+                        graph_version=definition.version if se.approval_id else None,
+                        scope=node.approval_scope if se.approval_id else None,
+                    )
+                elif se.state != "in_flight":
+                    raise RepositoryError(
+                        f"side-effect {effect_id} in invalid state for dispatch: {se.state}"
+                    )
 
     def record_submission(self, intent_id: int, attempt_id: str, task_id: str) -> None:
         now = self.clock()
@@ -513,12 +652,21 @@ class WorkflowEngine:
             if attempt["task_id"] not in (None, task_id):
                 raise CorrelationError(attempt_id, task_id)
             run = self.repo.get_run(attempt["run_id"])
-            node = self.definition_for(run).node(attempt["node"])
+            definition = self.definition_for(run)
+            node = definition.node(attempt["node"])
             self.repo.update_intent(intent_id, now, status="done")
             if attempt["status"] == "pending":
                 self.repo.update_attempt(attempt_id, task_id=task_id, status="submitted",
                                          submitted_at=now,
                                          deadline_at=now + node.timeout_seconds)
+            if node.side_effecting:
+                effect_id = f"se-{attempt_id}"
+                se = self.repo.get_side_effect(effect_id)
+                if se and se.state == "prepared":
+                    self.repo.transition_side_effect(
+                        effect_id, "in_flight", now,
+                        graph_version=definition.version, scope=node.approval_scope
+                    )
 
     def intent_transport_failed(self, intent_id: int, attempt_id: str, error: str) -> None:
         now = self.clock()

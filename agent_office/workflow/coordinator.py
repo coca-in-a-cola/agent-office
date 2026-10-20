@@ -20,6 +20,7 @@ from .activation import ActivationBoundary
 from .bridge_port import QUEUED, BridgePort, BridgeTransportError
 from .definitions import Outcome
 from .engine import TaskEvent, WorkflowEngine, event_from_status
+from .storage import RepositoryError
 
 
 @dataclass
@@ -90,9 +91,15 @@ class Coordinator:
             report.transport_errors += 1
             self.engine.intent_transport_failed(intent["intent_id"],
                                                 attempt["attempt_id"], str(exc))
+        except RepositoryError as exc:
+            self.engine.block_run(attempt["run_id"], f"authorization failed: {exc}")
+            with self.repo.transaction():
+                self.repo.update_intent(intent["intent_id"], self.engine.clock(), status="void")
+            raise
 
     def _submit(self, intent: Mapping[str, Any], attempt: Mapping[str, Any],
                 report: TickReport) -> None:
+        self.engine.authorize_dispatch(attempt["attempt_id"])
         receipt = self.boundary.record_activation(
             attempt["run_id"],
             attempt["node"],
