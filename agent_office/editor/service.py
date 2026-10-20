@@ -134,6 +134,8 @@ class EditorService:
         )
         return {
             "status": "ok",
+            "type": "definition",
+            "side_effects_authorized": False,
             **result,
         }
 

@@ -194,13 +194,21 @@ def resolve_bridge_workstation(task: Dict[str, Any], default: str = "tyler") -> 
     Artist); then keyword evidence weighted towards the title. Tasks with no
     evidence land on ``default`` (the managing director's desk).
     """
-    title = str(task.get("title") or "").lower()
-    goal = str(task.get("goal") or "")[:4000].lower()
-    project = str(task.get("project_id") or "").lower()
     alias_to_desk = {alias: desk for desk, aliases in BRIDGE_WORKSTATION_ALIASES.items()
                      for alias in aliases}
 
-    for text in (project, title, goal):
+    role = str(task.get("role") or "").strip().lower()
+    if role:
+        desk = alias_to_desk.get(role.replace("-", "_"))
+        if desk:
+            return desk
+
+    title = str(task.get("title") or "").lower()
+    goal = str(task.get("goal") or "")[:4000].lower()
+    project = str(task.get("project_id") or "").lower()
+    constraints = str(task.get("constraints") or "").lower()
+
+    for text in (project, title, goal, constraints):
         for match in _BRIDGE_TAG_RE.finditer(text):
             desk = alias_to_desk.get(match.group(1).replace("-", "_"))
             if desk:
@@ -313,6 +321,8 @@ class TaskBridgeReader:
             "title": data.get("title") or "",
             "goal": data.get("goal") or "",
             "state": state,
+            "role": data.get("role") or "",
+            "constraints": data.get("constraints") or "",
             "executor": data.get("executor") or "",
             "model": data.get("actual_model") or data.get("model_used")
             or data.get("requested_model") or "",
@@ -438,6 +448,10 @@ def apply_bridge_projection(
         running = [t for t in mine if t.get("state") in BRIDGE_ACTIVE_STATES
                    and str(t.get("task_id")) not in workflow_task_ids]
         agent["bridge_task"] = running[0] if running else None
+        failed = [t for t in mine if t.get("state") in ("failed", "blocked")
+                  and str(t.get("task_id")) not in workflow_task_ids]
+        if failed:
+            agent["recent_failure"] = failed[0]
         if not running or agent.get("workflow_assignment"):
             continue
         task = running[0]

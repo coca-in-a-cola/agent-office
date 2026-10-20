@@ -9,6 +9,7 @@ the frontend.
 from __future__ import annotations
 
 import argparse
+import base64
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -20,7 +21,7 @@ import sys
 import threading
 import time
 from typing import Any, Callable, Dict, List, Optional, Union
-from urllib.parse import parse_qs, unquote
+from urllib.parse import parse_qs, unquote, urlparse
 
 from .storage import (
     OfficeStorage,
@@ -41,6 +42,21 @@ RUN_COMMANDS = ("pause", "resume", "cancel", "approve", "retry")
 MONITOR_TAIL_LINES = 100
 MONITOR_TAIL_MAX = 1000
 
+ROLE_GRANTS: dict[str, set[str]] = {
+    "managing_director": {"create_run", "pause", "resume", "cancel", "retry", "approve", "publish_artifact", "publish_definition", "read_logs"},
+    "admin": {"create_run", "pause", "resume", "cancel", "retry", "approve", "publish_artifact", "publish_definition", "read_logs"},
+    "operator": {"create_run", "pause", "resume", "cancel", "retry", "publish_definition", "read_logs"},
+    "qa": {"publish_definition", "read_logs"},
+    "webdev": {"publish_definition", "read_logs"},
+    "coder": {"publish_definition", "read_logs"},
+    "guest": set(),
+}
+ACTOR_GRANTS: dict[str, set[str]] = {
+    "tyler": {"create_run", "pause", "resume", "cancel", "retry", "approve", "publish_artifact", "publish_definition", "read_logs"},
+    "owner": {"create_run", "pause", "resume", "cancel", "retry", "approve", "publish_artifact", "publish_definition", "read_logs"},
+    "operator": {"create_run", "pause", "resume", "cancel", "retry", "publish_definition", "read_logs"},
+}
+
 
 class ApiError(Exception):
     """Non-workflow API failure carrying an HTTP status."""
@@ -58,6 +74,12 @@ DEFAULT_WORKSTATIONS: list[dict[str, Any]] = [
         "role": "Managing Director",
         "status": "idle",
         "current_model": "anthropic/claude-3-7-sonnet",
+        "models": [
+            {"model": "antigravity/gemini-3.8-flash-high", "provider": "antigravity", "priority": 1},
+            {"model": "openai-broker/gpt-6.1-sol", "provider": "openai-broker", "priority": 2},
+            {"model": "claude-opus-5-5", "provider": "anthropic", "priority": 3},
+        ],
+        "routing_strategy": "priority",
         "capabilities": ["leadership", "planning", "coordination", "strategy"],
         "metadata": {"desk": "executive", "position": [0, 0], "avatar": "tyler"},
     },
@@ -67,6 +89,11 @@ DEFAULT_WORKSTATIONS: list[dict[str, Any]] = [
         "role": "Artist",
         "status": "idle",
         "current_model": "tripo/hunyuan3d-2.0",
+        "models": [
+            {"model": "antigravity/gemini-3.8-flash-high", "provider": "antigravity", "priority": 1},
+            {"model": "tripo/hunyuan3d-2.0", "provider": "tripo", "priority": 2},
+        ],
+        "routing_strategy": "priority",
         "capabilities": ["3d_modeling", "textures", "concept_art", "rigging"],
         "metadata": {"desk": "creative", "position": [1, 0], "avatar": "artist"},
     },
@@ -76,6 +103,12 @@ DEFAULT_WORKSTATIONS: list[dict[str, Any]] = [
         "role": "Game Developer (Godot)",
         "status": "idle",
         "current_model": "anthropic/claude-3-5-sonnet",
+        "models": [
+            {"model": "antigravity/gemini-3.8-flash-high", "provider": "antigravity", "priority": 1},
+            {"model": "openai-broker/gpt-6.1-sol", "provider": "openai-broker", "priority": 2},
+            {"model": "claude-opus-5-5", "provider": "anthropic", "priority": 3},
+        ],
+        "routing_strategy": "priority",
         "capabilities": ["godot4", "gdscript", "c_sharp", "shaders", "physics", "rendering"],
         "metadata": {"desk": "engineering", "position": [0, 1], "avatar": "coder"},
     },
@@ -85,6 +118,12 @@ DEFAULT_WORKSTATIONS: list[dict[str, Any]] = [
         "role": "Web Engineer",
         "status": "idle",
         "current_model": "anthropic/claude-3-5-sonnet",
+        "models": [
+            {"model": "antigravity/gemini-3.8-flash-high", "provider": "antigravity", "priority": 1},
+            {"model": "openai-broker/gpt-6.1-sol", "provider": "openai-broker", "priority": 2},
+            {"model": "claude-opus-5-5", "provider": "anthropic", "priority": 3},
+        ],
+        "routing_strategy": "priority",
         "capabilities": ["react", "typescript", "tailwind", "vite", "web_apis",
                          "browser_testing", "performance"],
         "metadata": {"desk": "frontend", "position": [2, 0], "avatar": "webdev"},
@@ -95,6 +134,12 @@ DEFAULT_WORKSTATIONS: list[dict[str, Any]] = [
         "role": "DevOps",
         "status": "idle",
         "current_model": "anthropic/claude-3-5-haiku",
+        "models": [
+            {"model": "antigravity/gemini-3.8-flash-high", "provider": "antigravity", "priority": 1},
+            {"model": "openai-broker/gpt-6.1-sol", "provider": "openai-broker", "priority": 2},
+            {"model": "claude-opus-5-5", "provider": "anthropic", "priority": 3},
+        ],
+        "routing_strategy": "priority",
         "capabilities": ["infrastructure", "docker", "ci_cd", "observability"],
         "metadata": {"desk": "operations", "position": [1, 1], "avatar": "devops"},
     },
@@ -104,6 +149,12 @@ DEFAULT_WORKSTATIONS: list[dict[str, Any]] = [
         "role": "QA",
         "status": "idle",
         "current_model": "anthropic/claude-3-5-sonnet",
+        "models": [
+            {"model": "antigravity/gemini-3.8-flash-high", "provider": "antigravity", "priority": 1},
+            {"model": "openai-broker/gpt-6.1-sol", "provider": "openai-broker", "priority": 2},
+            {"model": "claude-opus-5-5", "provider": "anthropic", "priority": 3},
+        ],
+        "routing_strategy": "priority",
         "capabilities": ["testing", "regression", "verification", "security"],
         "metadata": {"desk": "quality", "position": [2, 1], "avatar": "qa"},
     },
@@ -221,6 +272,8 @@ def get_office_state(
         merged["capabilities"] = sa.get("capabilities") or merged.get("capabilities") or []
         merged["metadata"] = sa.get("metadata") or merged.get("metadata") or {}
         merged["last_seen_at"] = sa.get("last_seen_at") or now
+        merged["models"] = sa.get("models") or merged.get("models") or []
+        merged["routing_strategy"] = sa.get("routing_strategy") or merged.get("routing_strategy") or "priority"
         agent_map[aid] = merged
 
     # Map active tasks to agents
@@ -476,11 +529,11 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
         # Route: Workstation Monitor and Task Bridge drill-down
         parts = [unquote(p) for p in parsed_path.split("/") if p]
         if len(parts) == 4 and parts[:2] == ["api", "agents"] and parts[3] == "monitor":
-            self.handle_api_call(lambda: get_agent_monitor(
-                parts[2], self.storage, self.workflow, self.bridge, self.query_tail()))
+            self.handle_api_call(lambda: self._check_log_access(lambda: get_agent_monitor(
+                parts[2], self.storage, self.workflow, self.bridge, self.query_tail())))
             return
         if len(parts) == 4 and parts[:2] == ["api", "tasks"] and parts[3] == "log":
-            self.handle_api_call(lambda: get_task_log(parts[2], self.bridge))
+            self.handle_api_call(lambda: self._check_log_access(lambda: get_task_log(parts[2], self.bridge)))
             return
         if parts[:1] == ["api"]:
             self.send_json(HTTPStatus.NOT_FOUND, {"status": "error", "message": "not found"})
@@ -489,16 +542,141 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
         # Route: Static web assets & SPA fallback
         self.handle_static_or_spa(self.path.split("?")[0])
 
+    def _check_log_access(self, producer: Callable[[], Any]) -> Any:
+        actor = self.get_verified_actor(require_auth=True)
+        self.check_grant(actor, "read_logs")
+        return producer()
+
+    def validate_csrf(self) -> None:
+        origin = self.headers.get("Origin")
+        referer = self.headers.get("Referer")
+        sec_fetch_site = self.headers.get("Sec-Fetch-Site")
+
+        if sec_fetch_site and sec_fetch_site.lower() == "cross-site":
+            raise WorkflowApiError(403, "cross-site requests forbidden (CSRF)")
+
+        host_header = (self.headers.get("Host") or "").lower()
+        host_name, _, host_port = host_header.partition(":")
+
+        server_addr = getattr(self.server, "server_address", ("127.0.0.1", 8080))
+        server_host = str(server_addr[0]).lower()
+        server_port = str(server_addr[1])
+
+        allowed_hostnames = {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
+        if host_name:
+            allowed_hostnames.add(host_name)
+        if server_host:
+            allowed_hostnames.add(server_host)
+
+        expected_ports = {server_port}
+        if host_port:
+            expected_ports.add(host_port)
+
+        if origin:
+            parsed = urlparse(origin)
+            origin_host = (parsed.hostname or "").lower()
+            origin_port = str(parsed.port) if parsed.port is not None else ("443" if parsed.scheme == "https" else "80")
+
+            if not origin_host or origin_host not in allowed_hostnames:
+                raise WorkflowApiError(403, f"CSRF protection: untrusted origin {origin!r}")
+            if server_port not in ("0", "80", "443") and origin_port not in expected_ports:
+                raise WorkflowApiError(403, f"CSRF protection: origin port mismatch {origin!r}")
+
+        if not origin and referer:
+            parsed = urlparse(referer)
+            referer_host = (parsed.hostname or "").lower()
+            referer_port = str(parsed.port) if parsed.port is not None else ("443" if parsed.scheme == "https" else "80")
+            if not referer_host or referer_host not in allowed_hostnames:
+                raise WorkflowApiError(403, f"CSRF protection: untrusted referer {referer!r}")
+            if server_port not in ("0", "80", "443") and referer_port not in expected_ports:
+                raise WorkflowApiError(403, f"CSRF protection: referer port mismatch {referer!r}")
+
+    def get_verified_actor(self, require_auth: bool = False) -> dict[str, Any]:
+        auth_header = self.headers.get("Authorization", "").strip()
+
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:].strip()
+            server_token = getattr(self.server, "auth_token", None)
+            is_valid = bool(server_token and token == server_token)
+
+            if is_valid:
+                actor_id = (self.headers.get("X-Actor-ID") or "").strip()
+                if not actor_id:
+                    actor_id = "tyler"
+                if actor_id in ("tyler", "owner"):
+                    role = "managing_director"
+                elif actor_id == "operator":
+                    role = "operator"
+                elif actor_id in ROLE_GRANTS:
+                    role = actor_id
+                else:
+                    role = "guest"
+                return {"id": actor_id, "role": role}
+            raise WorkflowApiError(401, "invalid Bearer token")
+
+        if auth_header.startswith("Basic "):
+            try:
+                decoded = base64.b64decode(auth_header[6:].strip()).decode("utf-8")
+                username, sep, password = decoded.partition(":")
+            except Exception:
+                raise WorkflowApiError(401, "invalid Authorization header encoding")
+
+            configured_basic = os.environ.get("AGENT_OFFICE_BASIC_AUTH")
+            credentials_map = getattr(self.server, "basic_credentials", {})
+            valid_basic = False
+            if configured_basic and decoded == configured_basic:
+                valid_basic = True
+            elif username in credentials_map and credentials_map[username] == password:
+                valid_basic = True
+
+            if valid_basic:
+                role = "managing_director" if username in ("tyler", "owner") else ("operator" if username == "operator" else "guest")
+                return {"id": username.strip(), "role": role}
+
+            raise WorkflowApiError(401, "credentials cannot be verified: no verifiable trust mechanism configured")
+
+        client_actor_headers = [
+            h for h in ("X-Actor-ID", "X-Actor-Role", "X-Actor-Grants", "X-Remote-User", "X-Forwarded-User", "X-Session-User")
+            if self.headers.get(h)
+        ]
+        if client_actor_headers:
+            raise WorkflowApiError(403, f"header impersonation rejected: headers {client_actor_headers} require verified authentication")
+
+        return {"id": "anonymous", "role": "guest"}
+
+    def check_grant(self, actor: dict[str, Any], action: str) -> None:
+        grants = set()
+        if actor.get("id") in ACTOR_GRANTS:
+            grants |= ACTOR_GRANTS[actor["id"]]
+        if actor.get("role") in ROLE_GRANTS:
+            grants |= ROLE_GRANTS[actor["role"]]
+
+        if action not in grants and "admin" not in grants:
+            raise WorkflowApiError(403, f"actor {actor.get('id')!r} lacks required grant {action!r}")
+
     def do_POST(self) -> None:
         """Handle POST requests (workflow commands only)."""
         parsed_path = self.path.split("?")[0].rstrip("/")
-        if self.is_workflow_path(parsed_path):
-            self.handle_workflow("POST", parsed_path)
-            return
-        if self.is_editor_path(parsed_path):
-            self.handle_editor("POST", parsed_path)
-            return
-        self.send_json(HTTPStatus.NOT_FOUND, {"status": "error", "message": "not found"})
+        try:
+            self.validate_csrf()
+            if self.is_workflow_path(parsed_path):
+                self.handle_workflow("POST", parsed_path)
+                return
+            if self.is_editor_path(parsed_path):
+                self.handle_editor("POST", parsed_path)
+                return
+            self.send_json(HTTPStatus.NOT_FOUND, {"status": "error", "message": "not found"})
+        except WorkflowApiError as exc:
+            self.send_json(exc.status, {"status": "error", "message": exc.message})
+        except EditorApiError as exc:
+            payload = {"status": "error", "message": exc.message}
+            if exc.extra:
+                payload.update(exc.extra)
+            self.send_json(exc.status, payload)
+        except Exception as exc:
+            logger.exception("Error processing POST %s", parsed_path)
+            self.send_json(HTTPStatus.INTERNAL_SERVER_ERROR,
+                           {"status": "error", "message": f"internal error: {exc}"})
 
     # -- Process Studio workflow API ---------------------------------------
     @staticmethod
@@ -551,14 +729,52 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
         elif parts == ["runs"] and method == "GET":
             handler = service.list_runs
         elif parts == ["runs"] and method == "POST":
+            actor = self.get_verified_actor()
+            self.check_grant(actor, "create_run")
             body = self.read_json_body()
             handler, status = (lambda: service.create_run(body)), HTTPStatus.CREATED
         elif len(parts) == 2 and parts[0] == "runs" and method == "GET":
             handler = lambda: service.get_run(parts[1])
         elif len(parts) == 3 and parts[0] == "runs" and parts[2] in RUN_COMMANDS \
                 and method == "POST":
+            service.get_run(parts[1])
+
+            actor = self.get_verified_actor()
+            action = parts[2]
+            self.check_grant(actor, action)
             body = self.read_json_body()
-            command = getattr(service, parts[2])
+
+            owner_aliases = {"owner", "tyler"}
+
+            if action == "approve":
+                scope = str(body.get("scope") or "")
+                if scope.startswith("publish:") or "publish" in scope:
+                    self.check_grant(actor, "publish_artifact")
+
+                if "approver" in body:
+                    approver_val = body["approver"]
+                    if isinstance(approver_val, str) and approver_val.strip():
+                        if actor["id"] in owner_aliases and approver_val in owner_aliases:
+                            pass
+                        elif approver_val != actor["id"]:
+                            raise WorkflowApiError(
+                                403,
+                                f"payload impersonation rejected: approver {approver_val!r} does not match verified actor {actor['id']!r}"
+                            )
+
+            if action in ("pause", "resume", "retry"):
+                if "actor" in body:
+                    actor_val = body["actor"]
+                    if isinstance(actor_val, str) and actor_val.strip():
+                        if actor["id"] in owner_aliases and actor_val in owner_aliases:
+                            pass
+                        elif actor_val != actor["id"]:
+                            raise WorkflowApiError(
+                                403,
+                                f"payload impersonation rejected: actor {actor_val!r} does not match verified actor {actor['id']!r}"
+                            )
+
+            command = getattr(service, action)
             handler = lambda: command(parts[1], body)
         if handler is None:
             raise WorkflowApiError(404, f"no workflow route {method} {path}")
@@ -589,12 +805,16 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
             if method == "GET":
                 return status, service.get_draft(draft_id)
             if method == "POST":
+                actor = self.get_verified_actor()
+                self.check_grant(actor, "publish_definition")
                 body = self.read_json_body()
                 return HTTPStatus.OK, service.save_draft(draft_id, body)
         if parts == ["validate"] and method == "POST":
             body = self.read_json_body()
             return status, service.validate(body)
         if parts == ["publish"] and method == "POST":
+            actor = self.get_verified_actor()
+            self.check_grant(actor, "publish_definition")
             body = self.read_json_body()
             return HTTPStatus.OK, service.publish(body)
         if parts == ["published"] and method == "GET":
@@ -612,6 +832,8 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
         try:
             status, data = self.route_editor(method, path)
             self.send_json(status, data)
+        except WorkflowApiError as exc:
+            self.send_json(exc.status, {"status": "error", "message": exc.message})
         except EditorApiError as exc:
             payload = {"status": "error", "message": exc.message}
             if exc.extra:
@@ -634,6 +856,8 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
         try:
             self.send_json(HTTPStatus.OK, producer())
         except ApiError as exc:
+            self.send_json(exc.status, {"status": "error", "message": exc.message})
+        except WorkflowApiError as exc:
             self.send_json(exc.status, {"status": "error", "message": exc.message})
         except Exception as exc:
             logger.exception("API error on %s", self.path)
@@ -864,6 +1088,7 @@ def create_server(
     workflow: Optional[WorkflowService] = None,
     bridge: Optional[TaskBridgeReader] = None,
     editor: Optional[EditorService] = None,
+    auth_token: Optional[str] = None,
 ) -> ThreadingHTTPServer:
     """Instantiate and configure ThreadingHTTPServer with OfficeRequestHandler.
 
@@ -876,7 +1101,9 @@ def create_server(
         return OfficeRequestHandler(*args, storage=target_storage, static_dir=target_static,
                                     workflow=workflow, bridge=bridge, editor=editor, **kwargs)
 
-    return ThreadingHTTPServer((host, port), handler_factory)
+    server = ThreadingHTTPServer((host, port), handler_factory)
+    server.auth_token = auth_token or os.environ.get("AGENT_OFFICE_AUTH_TOKEN", "trusted-local-token")
+    return server
 
 
 def run_server(
