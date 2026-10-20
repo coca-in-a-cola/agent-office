@@ -19,6 +19,7 @@ from unittest import mock
 
 from agent_office.workflow import bridge_port as bp
 from agent_office.workflow.bridge_port import FakeBridge, SubmitRequest
+from agent_office.workflow.coordinator import Coordinator
 from agent_office.workflow.definitions import (
     NodeDefinition,
     Outcome,
@@ -229,39 +230,31 @@ class TestWorkflowActivationBoundary(unittest.TestCase):
         self.assertEqual(persisted.status, "submitted")
 
     def test_single_authority_for_workflow_owned_successor(self) -> None:
-        """Successor task is generated exclusively by the workflow activation boundary."""
+        """Successor task is generated exclusively by the workflow activation boundary through runtime dispatch."""
         inputs = {"goal": "single authority test", "repo": "agent-office"}
         run_id = "run-auth-01"
         self.engine.start_run(run_id, self.def_hash, inputs)
 
-        # Step 1 activation
-        receipt1 = self.boundary.record_activation(run_id, "step1", iteration=1, attempt_no=1)
-        task_id1 = self.boundary.submit_or_reconcile(receipt1.activation_id)
+        coordinator = Coordinator(self.engine, self.bridge, boundary=self.boundary)
+        coordinator.run_until_idle()
         self.assertEqual(len(self.bridge.tasks()), 1)
+
+        receipt1 = self.boundary.get_activation(f"act:{run_id}:step1:1:1")
+        assert receipt1 is not None
+        task_id1 = receipt1.task_id
+        assert task_id1 is not None
 
         # Complete step 1
         self.bridge.set_state(task_id1, bp.SUCCEEDED, exit_code=0)
-        status1 = self.bridge.get_task_status(task_id1)
-        assert status1 is not None
-
-        event1 = bp.BridgeTaskStatus(
-            task_id=task_id1,
-            idempotency_key=receipt1.idempotency_key,
-            state=bp.SUCCEEDED,
-            exit_code=0,
-        )
-        # Advance workflow engine to successor
-        event = self.boundary.create_task_event(receipt1.activation_id, Outcome.SUCCESS)
-        event_res = self.engine.apply_event(event)
-        self.assertEqual(event_res.disposition, "applied")
-        self.assertEqual(event_res.target, "step2")
+        coordinator.run_until_idle()
 
         # Step 2 activation via workflow authority
-        receipt2 = self.boundary.record_activation(run_id, "step2", iteration=1, attempt_no=1)
-        self.assertEqual(receipt2.node, "step2")
-        task_id2 = self.boundary.submit_or_reconcile(receipt2.activation_id)
-        self.assertNotEqual(task_id1, task_id2)
         self.assertEqual(len(self.bridge.tasks()), 2)
+        receipt2 = self.boundary.get_activation(f"act:{run_id}:step2:1:1")
+        assert receipt2 is not None
+        task_id2 = receipt2.task_id
+        assert task_id2 is not None
+        self.assertNotEqual(task_id1, task_id2)
 
         # Verify both tasks carry distinct deterministic idempotency keys
         tasks = self.bridge.tasks()
@@ -269,6 +262,164 @@ class TestWorkflowActivationBoundary(unittest.TestCase):
             {t["idempotency_key"] for t in tasks},
             {f"agent-office-workflow:{run_id}/step1/1/1", f"agent-office-workflow:{run_id}/step2/1/1"},
         )
+
+    def test_normal_runtime_dispatch_creates_durable_receipt_and_submits_single_task(self) -> None:
+        """Normal runtime dispatch through Coordinator creates durable receipt and submits single task."""
+        inputs = {"goal": "normal dispatch", "repo": "agent-office", "working_dir": "/tmp/test"}
+        run_id = "run-dispatch-01"
+        self.engine.start_run(run_id, self.def_hash, inputs)
+
+        coordinator = Coordinator(self.engine, self.bridge)
+        reports = coordinator.run_until_idle()
+        self.assertTrue(any(r.submitted > 0 for r in reports))
+
+        # Check durable activation receipt
+        receipt = coordinator.boundary.get_activation(f"act:{run_id}:step1:1:1")
+        self.assertIsNotNone(receipt)
+        assert receipt is not None
+        self.assertEqual(receipt.status, "submitted")
+        self.assertEqual(receipt.definition_hash, self.def_hash)
+        self.assertEqual(receipt.input_snapshot, inputs)
+        self.assertEqual(receipt.idempotency_key, f"agent-office-workflow:{run_id}/step1/1/1")
+        self.assertIsNotNone(receipt.task_id)
+
+        # Check exactly one task in Bridge
+        tasks = self.bridge.tasks()
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0]["task_id"], receipt.task_id)
+
+        # Check role and model are preserved
+        req = json.loads(tasks[0]["request_json"])
+        self.assertEqual(req["executor"], "omo")
+        self.assertEqual(req["model"], "antigravity/gemini-3.8-flash-high")
+        self.assertIn("step 1", req["goal"])
+
+    def test_runtime_dispatch_restart_and_lost_ack_reconciles_without_second_task(self) -> None:
+        """Runtime dispatch with lost ack reconciles existing Bridge task without submitting duplicate."""
+        inputs = {"goal": "restart lost ack", "repo": "agent-office"}
+        run_id = "run-restart-01"
+        self.engine.start_run(run_id, self.def_hash, inputs)
+
+        idempotency_key = f"agent-office-workflow:{run_id}/step1/1/1"
+        pre_task_id = self.bridge.submit_task(
+            SubmitRequest(
+                idempotency_key=idempotency_key,
+                title="[run-restart-01] step1 #1.1",
+                goal="run step 1",
+                repo="agent-office",
+                working_dir=None,
+                executor="omo",
+                model="antigravity/gemini-3.8-flash-high",
+                timeout_seconds=60,
+                acceptance_criteria=(),
+                constraints=("role: coder",),
+            )
+        )
+        self.assertEqual(len(self.bridge.tasks()), 1)
+
+        coordinator = Coordinator(self.engine, self.bridge)
+        reports = coordinator.run_until_idle()
+
+        # Exactly one task exists in Bridge (no duplicate created)
+        self.assertEqual(len(self.bridge.tasks()), 1)
+        receipt = coordinator.boundary.get_activation(f"act:{run_id}:step1:1:1")
+        self.assertIsNotNone(receipt)
+        assert receipt is not None
+        self.assertEqual(receipt.task_id, pre_task_id)
+        self.assertEqual(receipt.status, "submitted")
+
+        # Engine attempt reflects the reconciled task_id
+        attempt = self.repo.get_attempt(f"{run_id}/step1/1/1")
+        self.assertEqual(attempt["task_id"], pre_task_id)
+
+    def test_runtime_dispatch_duplicate_event_and_completion_idempotent(self) -> None:
+        """Completed task advances cleanly; duplicate event/ticks do not create duplicate tasks."""
+        inputs = {"goal": "duplicate completion test", "repo": "agent-office"}
+        run_id = "run-dup-comp-01"
+        self.engine.start_run(run_id, self.def_hash, inputs)
+
+        coordinator = Coordinator(self.engine, self.bridge)
+        coordinator.run_until_idle()
+
+        # Step 1 task submitted
+        self.assertEqual(len(self.bridge.tasks()), 1)
+        task1 = self.bridge.tasks()[0]
+        task_id1 = task1["task_id"]
+
+        # Complete step 1 in Bridge
+        self.bridge.set_state(task_id1, bp.SUCCEEDED, exit_code=0)
+        coordinator.run_until_idle()
+
+        # Workflow advances to step 2; exactly 2 tasks across both steps
+        tasks = self.bridge.tasks()
+        self.assertEqual(len(tasks), 2)
+        task_id2 = [t["task_id"] for t in tasks if t["task_id"] != task_id1][0]
+
+        receipt2 = coordinator.boundary.get_activation(f"act:{run_id}:step2:1:1")
+        self.assertIsNotNone(receipt2)
+        assert receipt2 is not None
+        self.assertEqual(receipt2.task_id, task_id2)
+
+        # Duplicate ticks or events produce no additional tasks
+        coordinator.run_until_idle()
+        self.assertEqual(len(self.bridge.tasks()), 2)
+
+    def test_runtime_dispatch_scratch_native_bridge_sandbox(self) -> None:
+        """Runtime dispatch through native TaskBridge in scratch sandbox verifies single concrete task."""
+        import sys
+        stage2_src = Path("/home/tyler/workspaces/stage2-infra/src")
+        if str(stage2_src) not in sys.path:
+            sys.path.append(str(stage2_src))
+        from task_bridge.bridge import TaskBridge
+        from task_bridge.wake import ManagerWakeDispatcher
+
+        sandbox = self.root / "native_bridge_sandbox"
+        sandbox.mkdir(parents=True, exist_ok=True)
+        native_bridge = TaskBridge(
+            db_path=sandbox / "tasks.db",
+            base_workdir=sandbox / "work",
+            outbox_dir=sandbox / "outbox",
+            artifacts_dir=sandbox / "artifacts",
+        )
+        native_bridge.wake_dispatcher = ManagerWakeDispatcher(
+            native_bridge.storage,
+            runner=lambda cmd: (0, "", ""),
+        )
+        native_bridge.defer_wake_dispatch = True
+        native_adapter = bp.TaskBridgeAdapter(native_bridge)
+
+        native_repo_path = self.root / "native_workflow.sqlite3"
+        native_repo = WorkflowRepository(native_repo_path)
+        self.addCleanup(native_repo.close)
+        native_engine = WorkflowEngine(native_repo)
+        native_def_hash = native_engine.register(self.wf)
+
+        native_coordinator = Coordinator(native_engine, native_adapter)
+        run_id = "run-native-01"
+        inputs = {"goal": "test native bridge", "repo": "agent-office", "working_dir": str(sandbox / "work")}
+        native_engine.start_run(run_id, native_def_hash, inputs)
+
+        native_coordinator.run_until_idle()
+
+        # Verify durable receipt exists in activation_receipts table
+        receipt = native_coordinator.boundary.get_activation(f"act:{run_id}:step1:1:1")
+        self.assertIsNotNone(receipt)
+        assert receipt is not None
+        self.assertEqual(receipt.status, "submitted")
+        self.assertEqual(receipt.definition_hash, native_def_hash)
+        self.assertEqual(receipt.input_snapshot, inputs)
+        self.assertIsNotNone(receipt.task_id)
+
+        # Verify native bridge contains exactly one task
+        tasks = native_bridge.list_tasks()
+        self.assertEqual(len(tasks), 1)
+        task = native_bridge.get_task(receipt.task_id)
+        assert task is not None
+        self.assertEqual(task.id, receipt.task_id)
+        self.assertEqual(task.idempotency_key, f"agent-office-workflow:{run_id}/step1/1/1")
+        self.assertEqual(task.executor, "omo")
+        self.assertEqual(task.requested_model, "antigravity/gemini-3.8-flash-high")
+        self.assertEqual(task.role, "coder")
 
 
 if __name__ == "__main__":

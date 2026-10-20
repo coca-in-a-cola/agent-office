@@ -222,66 +222,76 @@ class ActivationBoundary:
         if receipt.task_id is not None:
             return receipt.task_id
 
+        attempt_id = f"{receipt.run_id}/{receipt.node}/{receipt.iteration}/{receipt.attempt_no}"
+
+        # 0. If attempt in repository already has task_id correlated, adopt it
+        try:
+            attempt = self.repo.get_attempt(attempt_id)
+            if attempt["task_id"] is not None:
+                task_id = attempt["task_id"]
+                with self.repo.transaction():
+                    self.repo.db.execute(
+                        "UPDATE activation_receipts SET task_id=?, status='submitted', updated_at=? WHERE activation_id=?",
+                        (task_id, now, activation_id),
+                    )
+                return task_id
+        except RepositoryError:
+            pass
+
         # 1. Reconcile with Bridge first using deterministic idempotency key
         existing = self.bridge.reconcile_task(receipt.idempotency_key)
         if existing is not None:
             task_id = existing.task_id
         else:
-            # 2. Build SubmitRequest pinned to durable snapshot
-            run = self.repo.get_run(receipt.run_id)
-            node_def = self.engine.definition_for(run).node(receipt.node)
-            inputs = receipt.input_snapshot
+            # 2. Build SubmitRequest using engine's canonical authority to prevent competing submission paths
+            try:
+                req = self.engine.submit_request(attempt_id)
+            except RepositoryError:
+                # Standalone fallback if attempt was not inserted via engine
+                run = self.repo.get_run(receipt.run_id)
+                node_def = self.engine.definition_for(run).node(receipt.node)
+                inputs = receipt.input_snapshot
 
-            context = {
-                "run_goal": inputs.get("goal", ""),
-                "definition_hash": receipt.definition_hash,
-                "activation_id": receipt.activation_id,
-                "node": receipt.node,
-                "iteration": receipt.iteration,
-                "attempt_no": receipt.attempt_no,
-            }
+                context = {
+                    "run_goal": inputs.get("goal", ""),
+                    "definition_hash": receipt.definition_hash,
+                    "activation_id": receipt.activation_id,
+                    "node": receipt.node,
+                    "iteration": receipt.iteration,
+                    "attempt_no": receipt.attempt_no,
+                }
 
-            executor = (
-                inputs.get("executor")
-                if inputs.get("executor") in node_def.allowed_executors
-                else node_def.allowed_executors[0]
-            )
-            model = (
-                inputs.get("model")
-                if inputs.get("model") in node_def.allowed_models
-                else node_def.allowed_models[0]
-            )
+                executor = (
+                    inputs.get("executor")
+                    if inputs.get("executor") in node_def.allowed_executors
+                    else node_def.allowed_executors[0]
+                )
+                model = (
+                    inputs.get("model")
+                    if inputs.get("model") in node_def.allowed_models
+                    else node_def.allowed_models[0]
+                )
 
-            req = SubmitRequest(
-                idempotency_key=receipt.idempotency_key,
-                title=f"[{receipt.run_id}] {receipt.node} #{receipt.iteration}.{receipt.attempt_no}",
-                goal=f"{node_def.goal}\n\nWorkflow context: {json.dumps(context, sort_keys=True)}",
-                repo=str(inputs.get("repo", "")),
-                working_dir=inputs.get("working_dir"),
-                executor=executor,
-                model=model,
-                timeout_seconds=node_def.timeout_seconds,
-                acceptance_criteria=node_def.completion_criteria,
-                constraints=(f"role: {node_def.role}",),
-            )
+                req = SubmitRequest(
+                    idempotency_key=receipt.idempotency_key,
+                    title=f"[{receipt.run_id}] {receipt.node} #{receipt.iteration}.{receipt.attempt_no}",
+                    goal=f"{node_def.goal}\n\nWorkflow context: {json.dumps(context, sort_keys=True)}",
+                    repo=str(inputs.get("repo", "")),
+                    working_dir=inputs.get("working_dir"),
+                    executor=executor,
+                    model=model,
+                    timeout_seconds=node_def.timeout_seconds,
+                    acceptance_criteria=node_def.completion_criteria,
+                    constraints=(f"role: {node_def.role}",),
+                )
             task_id = self.bridge.submit_task(req)
 
-        # 3. Atomically persist task_id correlation in receipt and attempt
-        attempt_id = f"{receipt.run_id}/{receipt.node}/{receipt.iteration}/{receipt.attempt_no}"
+        # 3. Atomically persist task_id correlation in receipt
         with self.repo.transaction():
             self.repo.db.execute(
                 "UPDATE activation_receipts SET task_id=?, status='submitted', updated_at=? WHERE activation_id=?",
                 (task_id, now, activation_id),
             )
-            # Synchronize attempt if present in repository
-            try:
-                attempt = self.repo.get_attempt(attempt_id)
-                if attempt["task_id"] is None:
-                    self.repo.update_attempt(
-                        attempt_id, task_id=task_id, status="submitted", submitted_at=now
-                    )
-            except RepositoryError:
-                pass
 
         return task_id
 

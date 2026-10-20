@@ -16,6 +16,7 @@ from dataclasses import dataclass
 import threading
 from typing import Any, Mapping
 
+from .activation import ActivationBoundary
 from .bridge_port import QUEUED, BridgePort, BridgeTransportError
 from .definitions import Outcome
 from .engine import TaskEvent, WorkflowEngine, event_from_status
@@ -32,10 +33,14 @@ class TickReport:
 
 
 class Coordinator:
-    def __init__(self, engine: WorkflowEngine, bridge: BridgePort) -> None:
+    def __init__(self, engine: WorkflowEngine, bridge: BridgePort,
+                 boundary: ActivationBoundary | None = None) -> None:
         self.engine = engine
         self.repo = engine.repo
         self.bridge = bridge
+        self.boundary = boundary or ActivationBoundary(
+            self.repo, self.engine, self.bridge, clock=self.engine.clock
+        )
 
     def run_once(self) -> TickReport:
         # Paused runs do not advance: no new submissions, quota rechecks or
@@ -88,14 +93,13 @@ class Coordinator:
 
     def _submit(self, intent: Mapping[str, Any], attempt: Mapping[str, Any],
                 report: TickReport) -> None:
-        if attempt["task_id"] is None:
-            # Reconcile first: a previous submit may have been accepted with
-            # its acknowledgement lost (or this process died before saving).
-            existing = self.bridge.reconcile_task(attempt["idempotency_key"])
-            task_id = existing.task_id if existing else self.bridge.submit_task(
-                self.engine.submit_request(attempt["attempt_id"]))
-        else:
-            task_id = attempt["task_id"]
+        receipt = self.boundary.record_activation(
+            attempt["run_id"],
+            attempt["node"],
+            iteration=attempt["iteration"],
+            attempt_no=attempt["attempt_no"],
+        )
+        task_id = self.boundary.submit_or_reconcile(receipt.activation_id)
         self.engine.record_submission(intent["intent_id"], attempt["attempt_id"], task_id)
         report.submitted += 1
 
