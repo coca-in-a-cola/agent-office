@@ -1,0 +1,569 @@
+{
+  "schema_version": "1.0.0",
+  "graph_id": "graph-timeout-recovery-v1",
+  "name": "Software Implementation with Timeout Recovery and Independent Acceptance",
+  "description": "Standard bounded release workflow with Work timeout handling, partial result inspection, loop gating, and independent QA acceptance.",
+  "version": 1,
+  "definition_hash": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "canonical": true,
+  "entrypoint": "node_start",
+  "layout": {
+    "viewport": { "x": 100, "y": 80, "zoom": 1.0 },
+    "nodes": {
+      "node_start": { "x": 60, "y": 200, "width": 180, "height": 100 },
+      "node_work": { "x": 300, "y": 180, "width": 240, "height": 260 },
+      "node_inspect": { "x": 600, "y": 320, "width": 240, "height": 220 },
+      "node_loop_gate": { "x": 600, "y": 80, "width": 200, "height": 140 },
+      "node_acceptance": { "x": 920, "y": 200, "width": 240, "height": 200 },
+      "node_end_success": { "x": 1240, "y": 160, "width": 180, "height": 100 },
+      "node_end_failed": { "x": 1240, "y": 380, "width": 180, "height": 100 }
+    }
+  },
+  "roles": {
+    "webdev": {
+      "role_id": "webdev",
+      "title": "Senior Frontend & Web Engineer",
+      "allowed_executors": ["omo", "claude"],
+      "default_route_policy_id": "policy_rr_coding"
+    },
+    "qa": {
+      "role_id": "qa",
+      "title": "Independent Acceptance Reviewer",
+      "allowed_executors": ["omo", "claude"],
+      "default_route_policy_id": "policy_priority_fast"
+    },
+    "tyler": {
+      "role_id": "tyler",
+      "title": "System Orchestrator & Loop Supervisor",
+      "allowed_executors": ["omo"],
+      "default_route_policy_id": "policy_priority_fast"
+    }
+  },
+  "policies": {
+    "routing_policies": [
+      {
+        "policy_id": "policy_rr_coding",
+        "revision": 1,
+        "strategy": "round_robin",
+        "routes": [
+          {
+            "route_id": "route_google_gemini",
+            "provider": "google",
+            "model": "antigravity/gemini-3.8-flash-high",
+            "executor": "omo",
+            "enabled": true,
+            "cooldown_seconds": 300
+          },
+          {
+            "route_id": "route_openai_gpt",
+            "provider": "openai",
+            "model": "openai-broker/gpt-6.1-sol",
+            "executor": "omo",
+            "enabled": true,
+            "cooldown_seconds": 300
+          },
+          {
+            "route_id": "route_anthropic_claude",
+            "provider": "anthropic",
+            "model": "claude-opus-5-5",
+            "executor": "claude",
+            "enabled": true,
+            "cooldown_seconds": 300
+          }
+        ]
+      },
+      {
+        "policy_id": "policy_priority_fast",
+        "revision": 1,
+        "strategy": "priority",
+        "routes": [
+          {
+            "route_id": "route_google_fast",
+            "provider": "google",
+            "model": "antigravity/gemini-3.8-flash-high",
+            "executor": "omo",
+            "enabled": true,
+            "cooldown_seconds": 180
+          },
+          {
+            "route_id": "route_anthropic_fast",
+            "provider": "anthropic",
+            "model": "claude-opus-5-5",
+            "executor": "claude",
+            "enabled": true,
+            "cooldown_seconds": 180
+          }
+        ]
+      }
+    ],
+    "approval_policies": [
+      {
+        "scope": "deploy:live",
+        "required_role": "owner",
+        "timeout_seconds": 3600,
+        "auto_action_on_expiry": "deny"
+      }
+    ]
+  },
+  "limits": {
+    "max_total_attempts": 10,
+    "max_total_iterations": 5,
+    "max_workflow_duration_seconds": 7200
+  },
+  "nodes": [
+    {
+      "id": "node_start",
+      "type": "Start",
+      "name": "Admission Gate",
+      "goal": "Validate incoming change request and allocate run workspace",
+      "ports": [
+        {
+          "id": "p_start_ctrl_out",
+          "name": "Started",
+          "direction": "output",
+          "kind": "control",
+          "control_outcome": "success"
+        },
+        {
+          "id": "p_start_cr_out",
+          "name": "Change Request",
+          "direction": "output",
+          "kind": "data",
+          "data_type": "ChangeRequest",
+          "required": true,
+          "cardinality": "single"
+        }
+      ]
+    },
+    {
+      "id": "node_work",
+      "type": "Work",
+      "name": "Software Implementation",
+      "role": "webdev",
+      "route_policy_id": "policy_rr_coding",
+      "goal": "Implement requested feature and commit to git with verified test exit",
+      "deadlines": {
+        "queue_timeout_seconds": 300,
+        "execution_timeout_seconds": 1800
+      },
+      "budgets": {
+        "max_attempts": 3,
+        "max_subagents": 2,
+        "max_cost_micros": 5000000
+      },
+      "config": {
+        "side_effecting": false,
+        "requires_approval": false,
+        "workspace_isolated": true
+      },
+      "ports": [
+        {
+          "id": "p_work_ctrl_in",
+          "name": "Execute",
+          "direction": "input",
+          "kind": "control",
+          "control_outcome": "exec_in"
+        },
+        {
+          "id": "p_work_cr_in",
+          "name": "Change Request",
+          "direction": "input",
+          "kind": "data",
+          "data_type": "ChangeRequest",
+          "required": true,
+          "cardinality": "single"
+        },
+        {
+          "id": "p_work_succ",
+          "name": "Success",
+          "direction": "output",
+          "kind": "control",
+          "control_outcome": "success"
+        },
+        {
+          "id": "p_work_defect",
+          "name": "Defect",
+          "direction": "output",
+          "kind": "control",
+          "control_outcome": "defect"
+        },
+        {
+          "id": "p_work_timeout",
+          "name": "Timeout",
+          "direction": "output",
+          "kind": "control",
+          "control_outcome": "timeout"
+        },
+        {
+          "id": "p_work_failure",
+          "name": "Failure",
+          "direction": "output",
+          "kind": "control",
+          "control_outcome": "failure"
+        },
+        {
+          "id": "p_work_quota_wait",
+          "name": "Quota Wait",
+          "direction": "output",
+          "kind": "status",
+          "status_kind": "quota_wait"
+        },
+        {
+          "id": "p_work_approval_wait",
+          "name": "Approval Wait",
+          "direction": "output",
+          "kind": "status",
+          "status_kind": "approval_wait"
+        },
+        {
+          "id": "p_work_quota_exhausted",
+          "name": "Quota Exhausted",
+          "direction": "output",
+          "kind": "control",
+          "control_outcome": "quota_exhausted"
+        },
+        {
+          "id": "p_work_commit_out",
+          "name": "Commit Ref",
+          "direction": "output",
+          "kind": "data",
+          "data_type": "CommitRef",
+          "required": false,
+          "cardinality": "single"
+        },
+        {
+          "id": "p_work_partial_out",
+          "name": "Partial Result",
+          "direction": "output",
+          "kind": "data",
+          "data_type": "PartialResult",
+          "required": false,
+          "cardinality": "single"
+        }
+      ]
+    },
+    {
+      "id": "node_inspect",
+      "type": "InspectResult",
+      "name": "Inspect Partial Snapshot",
+      "role": "qa",
+      "route_policy_id": "policy_priority_fast",
+      "goal": "Verify whether timed-out execution yielded a clean quiescent commit or recoverable state",
+      "deadlines": {
+        "queue_timeout_seconds": 120,
+        "execution_timeout_seconds": 600
+      },
+      "budgets": {
+        "max_attempts": 1,
+        "max_subagents": 0,
+        "max_cost_micros": 500000
+      },
+      "config": {
+        "criteria": ["quiescent snapshot", "head sha present", "clean test subset"]
+      },
+      "ports": [
+        {
+          "id": "p_insp_ctrl_in",
+          "name": "Inspect Trigger",
+          "direction": "input",
+          "kind": "control",
+          "control_outcome": "exec_in"
+        },
+        {
+          "id": "p_insp_partial_in",
+          "name": "Partial Result In",
+          "direction": "input",
+          "kind": "data",
+          "data_type": "PartialResult",
+          "required": true,
+          "cardinality": "single"
+        },
+        {
+          "id": "p_insp_accept_partial",
+          "name": "Accept Partial",
+          "direction": "output",
+          "kind": "control",
+          "control_outcome": "accept_partial"
+        },
+        {
+          "id": "p_insp_recover",
+          "name": "Recover Attempt",
+          "direction": "output",
+          "kind": "control",
+          "control_outcome": "recover"
+        },
+        {
+          "id": "p_insp_stop",
+          "name": "Stop Run",
+          "direction": "output",
+          "kind": "control",
+          "control_outcome": "stop"
+        },
+        {
+          "id": "p_insp_commit_out",
+          "name": "Recovered Commit",
+          "direction": "output",
+          "kind": "data",
+          "data_type": "CommitRef",
+          "required": false,
+          "cardinality": "single"
+        },
+        {
+          "id": "p_insp_evidence_out",
+          "name": "Inspection Evidence",
+          "direction": "output",
+          "kind": "data",
+          "data_type": "EvidenceRef",
+          "required": true,
+          "cardinality": "single"
+        }
+      ]
+    },
+    {
+      "id": "node_loop_gate",
+      "type": "LoopGate",
+      "name": "Retry Gate",
+      "role": "tyler",
+      "goal": "Enforce bounded iteration count on implementation retries",
+      "config": {
+        "max_iterations": 3,
+        "loop_variable": "retry_count"
+      },
+      "ports": [
+        {
+          "id": "p_gate_ctrl_in",
+          "name": "Gate Trigger",
+          "direction": "input",
+          "kind": "control",
+          "control_outcome": "exec_in"
+        },
+        {
+          "id": "p_gate_body",
+          "name": "Iterate",
+          "direction": "output",
+          "kind": "control",
+          "control_outcome": "loop_body"
+        },
+        {
+          "id": "p_gate_exit",
+          "name": "Exhausted",
+          "direction": "output",
+          "kind": "control",
+          "control_outcome": "loop_exit"
+        }
+      ]
+    },
+    {
+      "id": "node_acceptance",
+      "type": "IndependentAcceptance",
+      "name": "Independent Acceptance",
+      "role": "qa",
+      "route_policy_id": "policy_priority_fast",
+      "goal": "Verify implementation independently from author identity",
+      "deadlines": {
+        "queue_timeout_seconds": 180,
+        "execution_timeout_seconds": 900
+      },
+      "budgets": {
+        "max_attempts": 2,
+        "max_subagents": 1,
+        "max_cost_micros": 1000000
+      },
+      "config": {
+        "independent_of": ["node_work"],
+        "binds_source": true
+      },
+      "ports": [
+        {
+          "id": "p_acc_ctrl_in",
+          "name": "Acceptance Trigger",
+          "direction": "input",
+          "kind": "control",
+          "control_outcome": "exec_in"
+        },
+        {
+          "id": "p_acc_commit_in",
+          "name": "Commit Under Review",
+          "direction": "input",
+          "kind": "data",
+          "data_type": "CommitRef",
+          "required": true,
+          "cardinality": "single"
+        },
+        {
+          "id": "p_acc_succ",
+          "name": "Accepted",
+          "direction": "output",
+          "kind": "control",
+          "control_outcome": "success"
+        },
+        {
+          "id": "p_acc_defect",
+          "name": "Rejected",
+          "direction": "output",
+          "kind": "control",
+          "control_outcome": "defect"
+        },
+        {
+          "id": "p_acc_evidence_out",
+          "name": "Review Evidence",
+          "direction": "output",
+          "kind": "data",
+          "data_type": "EvidenceRef",
+          "required": true,
+          "cardinality": "single"
+        }
+      ]
+    },
+    {
+      "id": "node_end_success",
+      "type": "End",
+      "name": "Workflow Completed",
+      "goal": "Record successful completion and release run resources",
+      "config": {
+        "terminal_outcome": "completed"
+      },
+      "ports": [
+        {
+          "id": "p_end_succ_in",
+          "name": "Terminal In",
+          "direction": "input",
+          "kind": "control",
+          "control_outcome": "exec_in"
+        }
+      ]
+    },
+    {
+      "id": "node_end_failed",
+      "type": "End",
+      "name": "Workflow Terminated",
+      "goal": "Record stopped or failed status without silent continuation",
+      "config": {
+        "terminal_outcome": "failed"
+      },
+      "ports": [
+        {
+          "id": "p_end_fail_in",
+          "name": "Terminal In",
+          "direction": "input",
+          "kind": "control",
+          "control_outcome": "exec_in"
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_start_to_work_ctrl",
+      "kind": "control",
+      "source_node_id": "node_start",
+      "source_port_id": "p_start_ctrl_out",
+      "target_node_id": "node_work",
+      "target_port_id": "p_work_ctrl_in"
+    },
+    {
+      "id": "e_start_to_work_data",
+      "kind": "data",
+      "source_node_id": "node_start",
+      "source_port_id": "p_start_cr_out",
+      "target_node_id": "node_work",
+      "target_port_id": "p_work_cr_in"
+    },
+    {
+      "id": "e_work_timeout_to_inspect",
+      "kind": "control",
+      "source_node_id": "node_work",
+      "source_port_id": "p_work_timeout",
+      "target_node_id": "node_inspect",
+      "target_port_id": "p_insp_ctrl_in"
+    },
+    {
+      "id": "e_work_partial_data_to_inspect",
+      "kind": "data",
+      "source_node_id": "node_work",
+      "source_port_id": "p_work_partial_out",
+      "target_node_id": "node_inspect",
+      "target_port_id": "p_insp_partial_in"
+    },
+    {
+      "id": "e_inspect_recover_to_gate",
+      "kind": "control",
+      "source_node_id": "node_inspect",
+      "source_port_id": "p_insp_recover",
+      "target_node_id": "node_loop_gate",
+      "target_port_id": "p_gate_ctrl_in"
+    },
+    {
+      "id": "e_gate_body_to_work_loop",
+      "kind": "control",
+      "source_node_id": "node_loop_gate",
+      "source_port_id": "p_gate_body",
+      "target_node_id": "node_work",
+      "target_port_id": "p_work_ctrl_in"
+    },
+    {
+      "id": "e_gate_exit_to_end_failed",
+      "kind": "control",
+      "source_node_id": "node_loop_gate",
+      "source_port_id": "p_gate_exit",
+      "target_node_id": "node_end_failed",
+      "target_port_id": "p_end_fail_in"
+    },
+    {
+      "id": "e_inspect_accept_to_acceptance",
+      "kind": "control",
+      "source_node_id": "node_inspect",
+      "source_port_id": "p_insp_accept_partial",
+      "target_node_id": "node_acceptance",
+      "target_port_id": "p_acc_ctrl_in"
+    },
+    {
+      "id": "e_inspect_commit_data_to_acceptance",
+      "kind": "data",
+      "source_node_id": "node_inspect",
+      "source_port_id": "p_insp_commit_out",
+      "target_node_id": "node_acceptance",
+      "target_port_id": "p_acc_commit_in"
+    },
+    {
+      "id": "e_inspect_stop_to_end_failed",
+      "kind": "control",
+      "source_node_id": "node_inspect",
+      "source_port_id": "p_insp_stop",
+      "target_node_id": "node_end_failed",
+      "target_port_id": "p_end_fail_in"
+    },
+    {
+      "id": "e_work_succ_to_acceptance",
+      "kind": "control",
+      "source_node_id": "node_work",
+      "source_port_id": "p_work_succ",
+      "target_node_id": "node_acceptance",
+      "target_port_id": "p_acc_ctrl_in"
+    },
+    {
+      "id": "e_work_commit_data_to_acceptance",
+      "kind": "data",
+      "source_node_id": "node_work",
+      "source_port_id": "p_work_commit_out",
+      "target_node_id": "node_acceptance",
+      "target_port_id": "p_acc_commit_in"
+    },
+    {
+      "id": "e_acceptance_succ_to_end",
+      "kind": "control",
+      "source_node_id": "node_acceptance",
+      "source_port_id": "p_acc_succ",
+      "target_node_id": "node_end_success",
+      "target_port_id": "p_end_succ_in"
+    },
+    {
+      "id": "e_acceptance_defect_to_gate",
+      "kind": "control",
+      "source_node_id": "node_acceptance",
+      "source_port_id": "p_acc_defect",
+      "target_node_id": "node_loop_gate",
+      "target_port_id": "p_gate_ctrl_in"
+    }
+  ]
+}

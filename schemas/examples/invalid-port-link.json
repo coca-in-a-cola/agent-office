@@ -1,0 +1,202 @@
+{
+  "schema_version": "1.0.0",
+  "graph_id": "graph-invalid-port-link-v1",
+  "name": "Invalid Port Link Counter-Example",
+  "description": "Counter-example graph demonstrating forbidden port link violations: control wired into data, status wired into exec_in, and mismatched data types.",
+  "version": 1,
+  "definition_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "canonical": false,
+  "entrypoint": "node_start",
+  "layout": {
+    "viewport": { "x": 0, "y": 0, "zoom": 1.0 },
+    "nodes": {
+      "node_start": { "x": 100, "y": 100 },
+      "node_work": { "x": 350, "y": 100 },
+      "node_inspect": { "x": 650, "y": 100 }
+    }
+  },
+  "roles": {
+    "webdev": {
+      "role_id": "webdev",
+      "title": "Senior Frontend & Web Engineer",
+      "allowed_executors": ["omo"],
+      "default_route_policy_id": "policy_single"
+    }
+  },
+  "policies": {
+    "routing_policies": [
+      {
+        "policy_id": "policy_single",
+        "revision": 1,
+        "strategy": "priority",
+        "routes": [
+          {
+            "route_id": "route_omo_gemini",
+            "provider": "google",
+            "model": "antigravity/gemini-3.8-flash-high",
+            "executor": "omo",
+            "enabled": true,
+            "cooldown_seconds": 60
+          }
+        ]
+      }
+    ],
+    "approval_policies": []
+  },
+  "limits": {
+    "max_total_attempts": 3,
+    "max_total_iterations": 2,
+    "max_workflow_duration_seconds": 3600
+  },
+  "nodes": [
+    {
+      "id": "node_start",
+      "type": "Start",
+      "name": "Start Node",
+      "ports": [
+        {
+          "id": "p_start_ctrl_out",
+          "name": "Started",
+          "direction": "output",
+          "kind": "control",
+          "control_outcome": "success"
+        },
+        {
+          "id": "p_start_cr_out",
+          "name": "Change Request",
+          "direction": "output",
+          "kind": "data",
+          "data_type": "ChangeRequest",
+          "required": true,
+          "cardinality": "single"
+        }
+      ]
+    },
+    {
+      "id": "node_work",
+      "type": "Work",
+      "name": "Work Node",
+      "role": "webdev",
+      "route_policy_id": "policy_single",
+      "deadlines": {
+        "queue_timeout_seconds": 60,
+        "execution_timeout_seconds": 600
+      },
+      "budgets": {
+        "max_attempts": 1
+      },
+      "ports": [
+        {
+          "id": "p_work_ctrl_in",
+          "name": "Exec In",
+          "direction": "input",
+          "kind": "control",
+          "control_outcome": "exec_in"
+        },
+        {
+          "id": "p_work_cr_in",
+          "name": "Change Request In",
+          "direction": "input",
+          "kind": "data",
+          "data_type": "ChangeRequest",
+          "required": true,
+          "cardinality": "single"
+        },
+        {
+          "id": "p_work_timeout",
+          "name": "Timeout",
+          "direction": "output",
+          "kind": "control",
+          "control_outcome": "timeout"
+        },
+        {
+          "id": "p_work_quota_wait",
+          "name": "Quota Wait",
+          "direction": "output",
+          "kind": "status",
+          "status_kind": "quota_wait"
+        },
+        {
+          "id": "p_work_partial_out",
+          "name": "Partial Result",
+          "direction": "output",
+          "kind": "data",
+          "data_type": "PartialResult",
+          "required": false,
+          "cardinality": "single"
+        }
+      ]
+    },
+    {
+      "id": "node_inspect",
+      "type": "InspectResult",
+      "name": "Inspect Node",
+      "role": "webdev",
+      "route_policy_id": "policy_single",
+      "deadlines": {
+        "queue_timeout_seconds": 60,
+        "execution_timeout_seconds": 300
+      },
+      "budgets": {
+        "max_attempts": 1
+      },
+      "ports": [
+        {
+          "id": "p_insp_ctrl_in",
+          "name": "Exec In",
+          "direction": "input",
+          "kind": "control",
+          "control_outcome": "exec_in"
+        },
+        {
+          "id": "p_insp_commit_in",
+          "name": "Commit In",
+          "direction": "input",
+          "kind": "data",
+          "data_type": "CommitRef",
+          "required": true,
+          "cardinality": "single"
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_valid_start_ctrl",
+      "kind": "control",
+      "source_node_id": "node_start",
+      "source_port_id": "p_start_ctrl_out",
+      "target_node_id": "node_work",
+      "target_port_id": "p_work_ctrl_in"
+    },
+    {
+      "id": "e_invalid_status_to_control",
+      "kind": "control",
+      "source_node_id": "node_work",
+      "source_port_id": "p_work_quota_wait",
+      "target_node_id": "node_inspect",
+      "target_port_id": "p_insp_ctrl_in"
+    },
+    {
+      "id": "e_invalid_control_to_data",
+      "kind": "data",
+      "source_node_id": "node_work",
+      "source_port_id": "p_work_timeout",
+      "target_node_id": "node_inspect",
+      "target_port_id": "p_insp_commit_in"
+    },
+    {
+      "id": "e_invalid_data_type_mismatch",
+      "kind": "data",
+      "source_node_id": "node_work",
+      "source_port_id": "p_work_partial_out",
+      "target_node_id": "node_inspect",
+      "target_port_id": "p_insp_commit_in"
+    }
+  ],
+  "_expected_validation_errors": [
+    "Edge 'e_invalid_status_to_control': source port 'p_work_quota_wait' has kind 'status', but edge kind is 'control' and target port 'p_insp_ctrl_in' is 'control'. Observable waiting states cannot activate an ordinary exec successor.",
+    "Edge 'e_invalid_control_to_data': source port 'p_work_timeout' has kind 'control', but edge kind is 'data' and target port 'p_insp_commit_in' has kind 'data'. Control tokens cannot be wired to data input ports.",
+    "Edge 'e_invalid_data_type_mismatch': source data_type 'PartialResult' does not match or satisfy target data_type 'CommitRef'."
+  ]
+}

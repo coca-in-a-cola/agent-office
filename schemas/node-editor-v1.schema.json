@@ -1,0 +1,599 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://agent-office.local/schemas/node-editor-v1.schema.json",
+  "title": "AgentOfficeNodeEditorGraphV1",
+  "description": "Machine-readable executable graph definition schema for Agent Office Process Studio and Bridge runtime (v1 bounded grammar).",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "graph_id",
+    "version",
+    "definition_hash",
+    "entrypoint",
+    "roles",
+    "policies",
+    "limits",
+    "nodes",
+    "edges"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": ["1.0", "1.0.0"]
+    },
+    "graph_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]{2,63}$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 1024
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "definition_hash": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "description": "Canonical SHA-256 hash computed over semantic properties (excluding layout and viewport)."
+    },
+    "canonical": {
+      "type": "boolean",
+      "default": false
+    },
+    "entrypoint": {
+      "type": "string",
+      "description": "Node ID of the Start node that admits new runs."
+    },
+    "layout": {
+      "type": "object",
+      "description": "Visual presentation and viewport metadata. Kept isolated from semantic execution definition.",
+      "additionalProperties": false,
+      "properties": {
+        "viewport": {
+          "type": "object",
+          "required": ["x", "y", "zoom"],
+          "additionalProperties": false,
+          "properties": {
+            "x": { "type": "number" },
+            "y": { "type": "number" },
+            "zoom": { "type": "number", "minimum": 0.1, "maximum": 5.0 }
+          }
+        },
+        "nodes": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["x", "y"],
+            "additionalProperties": false,
+            "properties": {
+              "x": { "type": "number" },
+              "y": { "type": "number" },
+              "width": { "type": "number" },
+              "height": { "type": "number" }
+            }
+          }
+        }
+      }
+    },
+    "roles": {
+      "type": "object",
+      "description": "Role definitions mapping competency roles to allowed executors and default route policies.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["role_id", "title", "allowed_executors", "default_route_policy_id"],
+        "additionalProperties": false,
+        "properties": {
+          "role_id": {
+            "type": "string",
+            "pattern": "^[a-z0-9_-]+$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "allowed_executors": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["omo", "claude"]
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "default_route_policy_id": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "policies": {
+      "type": "object",
+      "required": ["routing_policies", "approval_policies"],
+      "additionalProperties": false,
+      "properties": {
+        "routing_policies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RoutingPolicy"
+          },
+          "minItems": 1
+        },
+        "approval_policies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ApprovalPolicy"
+          }
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "required": ["max_total_attempts", "max_total_iterations", "max_workflow_duration_seconds"],
+      "additionalProperties": false,
+      "properties": {
+        "max_total_attempts": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "max_total_iterations": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        },
+        "max_workflow_duration_seconds": {
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 86400
+        }
+      }
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Node"
+      },
+      "minItems": 2
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Edge"
+      },
+      "minItems": 1
+    }
+  },
+  "definitions": {
+    "RoutingPolicy": {
+      "type": "object",
+      "required": ["policy_id", "revision", "strategy", "routes"],
+      "additionalProperties": false,
+      "properties": {
+        "policy_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9_-]+$"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "strategy": {
+          "type": "string",
+          "enum": ["priority", "round_robin"],
+          "description": "priority selects first available route; round_robin alternates providers, ordering candidates within each provider."
+        },
+        "routes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Route"
+          },
+          "minItems": 1
+        }
+      }
+    },
+    "Route": {
+      "type": "object",
+      "required": ["route_id", "provider", "model", "executor", "enabled"],
+      "additionalProperties": false,
+      "properties": {
+        "route_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9_-]+$"
+        },
+        "provider": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "executor": {
+          "type": "string",
+          "enum": ["omo", "claude"]
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "cooldown_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 300
+        }
+      }
+    },
+    "ApprovalPolicy": {
+      "type": "object",
+      "required": ["scope", "required_role", "timeout_seconds", "auto_action_on_expiry"],
+      "additionalProperties": false,
+      "properties": {
+        "scope": {
+          "type": "string",
+          "pattern": "^[a-z0-9_:-]+$"
+        },
+        "required_role": {
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 86400
+        },
+        "auto_action_on_expiry": {
+          "type": "string",
+          "enum": ["expire", "deny"]
+        }
+      }
+    },
+    "Deadlines": {
+      "type": "object",
+      "required": ["queue_timeout_seconds", "execution_timeout_seconds"],
+      "additionalProperties": false,
+      "properties": {
+        "queue_timeout_seconds": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 86400,
+          "description": "Maximum duration an attempt may wait queued in Bridge without eating execution deadline."
+        },
+        "execution_timeout_seconds": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 86400,
+          "description": "Active execution timeout starting strictly after Bridge worker acceptance."
+        }
+      }
+    },
+    "Budgets": {
+      "type": "object",
+      "required": ["max_attempts"],
+      "additionalProperties": false,
+      "properties": {
+        "max_attempts": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        },
+        "max_subagents": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10,
+          "default": 0
+        },
+        "max_cost_micros": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        }
+      }
+    },
+    "Port": {
+      "type": "object",
+      "required": ["id", "name", "direction", "kind"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9_-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "direction": {
+          "type": "string",
+          "enum": ["input", "output"]
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["control", "data", "status"]
+        },
+        "control_outcome": {
+          "type": "string",
+          "enum": [
+            "exec_in",
+            "success",
+            "defect",
+            "timeout",
+            "failure",
+            "cancel",
+            "quota_exhausted",
+            "accept_partial",
+            "recover",
+            "stop",
+            "approved",
+            "denied",
+            "expired",
+            "true",
+            "false",
+            "loop_body",
+            "loop_exit",
+            "joined"
+          ],
+          "description": "Outcome token emitted or accepted by a control port."
+        },
+        "status_kind": {
+          "type": "string",
+          "enum": ["quota_wait", "approval_wait"],
+          "description": "Observable non-terminal waiting state port."
+        },
+        "data_type": {
+          "type": "string",
+          "enum": [
+            "ChangeRequest",
+            "CommitRef",
+            "ArtifactRef",
+            "EvidenceRef",
+            "TaskRef",
+            "InspectionResult",
+            "ApprovalRef",
+            "PartialResult",
+            "SecretRef",
+            "string",
+            "number",
+            "boolean"
+          ],
+          "description": "Exact data type carried across data wires. Raw secret values are forbidden; use SecretRef."
+        },
+        "required": {
+          "type": "boolean",
+          "default": true
+        },
+        "cardinality": {
+          "type": "string",
+          "enum": ["single", "multiple"],
+          "default": "single"
+        }
+      }
+    },
+    "Node": {
+      "type": "object",
+      "required": ["id", "type", "name", "ports"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9_-]+$"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "Start",
+            "Work",
+            "InspectResult",
+            "IndependentAcceptance",
+            "Build",
+            "ArtifactCheck",
+            "Condition",
+            "LoopGate",
+            "AllOfJoin",
+            "Approval",
+            "Publish",
+            "Deliver",
+            "End"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "role": {
+          "type": "string",
+          "description": "Assigned employee competency role (e.g. webdev, coder, qa, devops, tyler)."
+        },
+        "route_policy_id": {
+          "type": "string",
+          "description": "References a policy_id under policies.routing_policies."
+        },
+        "goal": {
+          "type": "string"
+        },
+        "deadlines": {
+          "$ref": "#/definitions/Deadlines"
+        },
+        "budgets": {
+          "$ref": "#/definitions/Budgets"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Node-specific configuration parameters."
+        },
+        "ports": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Port"
+          },
+          "minItems": 1
+        }
+      }
+    },
+    "Edge": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "source_node_id",
+        "source_port_id",
+        "target_node_id",
+        "target_port_id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9_-]+$"
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["control", "data", "status"]
+        },
+        "source_node_id": {
+          "type": "string"
+        },
+        "source_port_id": {
+          "type": "string"
+        },
+        "target_node_id": {
+          "type": "string"
+        },
+        "target_port_id": {
+          "type": "string"
+        },
+        "guard": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "expression": { "type": "string" },
+            "description": { "type": "string" }
+          }
+        }
+      }
+    },
+    "CommitRef": {
+      "type": "object",
+      "required": ["repo_id", "sha"],
+      "additionalProperties": false,
+      "properties": {
+        "repo_id": { "type": "string" },
+        "sha": { "type": "string", "pattern": "^[a-f0-9]{40}$" }
+      }
+    },
+    "ArtifactRef": {
+      "type": "object",
+      "required": ["id", "digest", "size", "media_type", "quiescence"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "size": { "type": "integer", "minimum": 0 },
+        "media_type": { "type": "string" },
+        "quiescence": {
+          "type": "string",
+          "enum": ["quiescent_snapshot", "unverified"]
+        }
+      }
+    },
+    "EvidenceRef": {
+      "type": "object",
+      "required": [
+        "producer_role",
+        "run_id",
+        "activation_id",
+        "attempt_id",
+        "bridge_task_id",
+        "graph_revision",
+        "policy_revision",
+        "input_fingerprint",
+        "criterion",
+        "result",
+        "timestamp_iso"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "producer_role": { "type": "string" },
+        "run_id": { "type": "string" },
+        "activation_id": { "type": "string" },
+        "attempt_id": { "type": "string" },
+        "bridge_task_id": { "type": "string" },
+        "graph_revision": { "type": "integer" },
+        "policy_revision": { "type": "integer" },
+        "input_fingerprint": { "type": "string" },
+        "criterion": { "type": "string" },
+        "result": { "type": "string", "enum": ["pass", "defect", "inconclusive"] },
+        "timestamp_iso": { "type": "string" },
+        "safe_receipt_ref": { "type": "string" }
+      }
+    },
+    "SecretRef": {
+      "type": "object",
+      "required": ["secret_id", "scope", "allowlist"],
+      "additionalProperties": false,
+      "description": "Never exposes raw secret values in graphs, browser viewports, or model prompts.",
+      "properties": {
+        "secret_id": { "type": "string", "pattern": "^[a-z0-9_:-]+$" },
+        "scope": { "type": "string" },
+        "allowlist": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        }
+      }
+    },
+    "PartialResult": {
+      "type": "object",
+      "required": [
+        "source_activation_id",
+        "source_task_id",
+        "consistency",
+        "capture_time_iso"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source_activation_id": { "type": "string" },
+        "source_task_id": { "type": "string" },
+        "commit_ref": {
+          "oneOf": [
+            { "$ref": "#/definitions/CommitRef" },
+            { "type": "null" }
+          ]
+        },
+        "artifact_refs": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/ArtifactRef" }
+        },
+        "consistency": {
+          "type": "string",
+          "enum": ["quiescent_snapshot", "unverified"]
+        },
+        "capture_time_iso": { "type": "string" },
+        "no_saved_result_reason": {
+          "type": "string",
+          "enum": ["timeout_no_write", "crash_before_flush", "unclean_shutdown", "none"],
+          "default": "none"
+        }
+      }
+    },
+    "OptionalValue": {
+      "type": "object",
+      "required": ["status"],
+      "additionalProperties": false,
+      "description": "Explicit distinction between absent optional value, pending computation, and present value.",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["absent", "pending", "present"]
+        },
+        "value": {}
+      }
+    }
+  }
+}
