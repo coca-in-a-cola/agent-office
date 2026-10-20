@@ -154,6 +154,9 @@ class GraphValidator:
         # 3. Edge Validation
         edges_list = graph.get("edges", [])
         control_edges: list[tuple[str, str]] = []
+        valid_control_sources: dict[str, set[str]] = {}
+        incoming_by_port: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        outgoing_by_port: dict[tuple[str, str], list[dict[str, Any]]] = {}
 
         if isinstance(edges_list, list):
             seen_edge_ports: set[tuple[str, str, str, str]] = set()
@@ -246,14 +249,45 @@ class GraphValidator:
                             f"match or satisfy target data_type '{tgt_dtype}'."
                         )
 
-                # Track control flow for cycle detection
                 if edge_kind == "control":
                     control_edges.append((src_node_id, tgt_node_id))
-                    # Invariant: Entrypoint Start node cannot receive incoming control
+                    valid_control_sources.setdefault(tgt_node_id, set()).add(src_node_id)
                     if tgt_node_id == entrypoint:
                         errors.append(
                             f"Edge '{edge_id}': entrypoint node '{entrypoint}' cannot receive incoming control."
                         )
+
+                incoming_by_port.setdefault((tgt_node_id, tgt_port_id), []).append(edge)
+                outgoing_by_port.setdefault((src_node_id, src_port_id), []).append(edge)
+
+            for (s_node_id, s_port_id), out_edges in outgoing_by_port.items():
+                s_port = ports_by_node.get(s_node_id, {}).get(s_port_id, {})
+                if s_port.get("cardinality") == "single" and len(out_edges) > 1:
+                    for extra_edge in out_edges[1:]:
+                        errors.append(
+                            f"Edge '{extra_edge.get('id', 'unknown_edge')}': port '{s_port_id}' "
+                            f"on node '{s_node_id}' declares cardinality 'single' and cannot have "
+                            f"multiple outgoing edges (fan-out violation)."
+                        )
+
+            for (t_node_id, t_port_id), in_edges in incoming_by_port.items():
+                t_port = ports_by_node.get(t_node_id, {}).get(t_port_id, {})
+                if t_port.get("cardinality") == "single" and len(in_edges) > 1:
+                    ctrl_sources = valid_control_sources.get(t_node_id, set())
+                    edge_sources = [e.get("source_node_id") for e in in_edges]
+                    is_control_routing_fan_in = (
+                        t_port.get("kind") == "data"
+                        and len(ctrl_sources) > 1
+                        and len(set(edge_sources)) == len(edge_sources)
+                        and all(src in ctrl_sources for src in edge_sources)
+                    )
+                    if not is_control_routing_fan_in:
+                        for extra_edge in in_edges[1:]:
+                            errors.append(
+                                f"Edge '{extra_edge.get('id', 'unknown_edge')}': port '{t_port_id}' "
+                                f"on node '{t_node_id}' declares cardinality 'single' and cannot "
+                                f"accept multiple incoming edges (fan-in violation)."
+                            )
 
         # 4. Cycle Detection on Control Flow
         all_cycles = _find_all_cycles(list(nodes.keys()), control_edges)

@@ -224,6 +224,95 @@ class TestPortAndGrammarValidation(unittest.TestCase):
             f"Expected arbitrary cycle error, got: {errors}",
         )
 
+    def test_declared_single_input_cardinality_rejection_reproduction(self) -> None:
+        """Reproduction of AO-NE-03 acceptance defect:
+        A port with declared cardinality 'single' must not accept multiple incoming edges (fan-in violation).
+        """
+        graph = copy.deepcopy(self.valid_graph)
+        # Deep-copy nodes[0].ports[1] (ChangeRequest data output, single), set id='audit_cr_output', append to node_work
+        cr_port = copy.deepcopy(graph["nodes"][0]["ports"][1])
+        cr_port["id"] = "audit_cr_output"
+        graph["nodes"][1]["ports"].append(cr_port)
+
+        # Deep-copy edges[1] start->work ChangeRequest data edge, set unique id='audit_duplicate_single_input',
+        # source_node_id='node_work', source_port_id='audit_cr_output', keep target p_work_cr_in. Append edge.
+        dup_edge = copy.deepcopy(graph["edges"][1])
+        dup_edge["id"] = "audit_duplicate_single_input"
+        dup_edge["source_node_id"] = "node_work"
+        dup_edge["source_port_id"] = "audit_cr_output"
+        dup_edge["target_node_id"] = "node_work"
+        dup_edge["target_port_id"] = "p_work_cr_in"
+        graph["edges"].append(dup_edge)
+
+        errors = validate_graph(graph)
+        self.assertGreater(len(errors), 0, "Validator must reject multiple sources to single input port")
+        self.assertTrue(
+            any("cardinality" in e.lower() and "p_work_cr_in" in e for e in errors),
+            f"Expected port cardinality error for p_work_cr_in, got: {errors}",
+        )
+
+    def test_declared_single_output_cardinality_rejection(self) -> None:
+        """Port declared with cardinality 'single' on output cannot have multiple outgoing edges (fan-out violation)."""
+        graph = copy.deepcopy(self.valid_graph)
+        # nodes[0].ports[1] (p_start_cr_out) is declared single output.
+        # Add a second node that consumes p_start_cr_out.
+        # Deep-copy p_work_cr_in onto node_inspect
+        inspect_cr_port = copy.deepcopy(graph["nodes"][0]["ports"][1])
+        inspect_cr_port["id"] = "p_insp_cr_in"
+        inspect_cr_port["direction"] = "input"
+        graph["nodes"][2]["ports"].append(inspect_cr_port)
+
+        # Add second edge from p_start_cr_out to node_inspect.p_insp_cr_in
+        graph["edges"].append({
+            "id": "e_start_to_inspect_cr",
+            "kind": "data",
+            "source_node_id": "node_start",
+            "source_port_id": "p_start_cr_out",
+            "target_node_id": "node_inspect",
+            "target_port_id": "p_insp_cr_in",
+        })
+
+        errors = validate_graph(graph)
+        self.assertGreater(len(errors), 0, "Validator must reject multiple targets from single output port")
+        self.assertTrue(
+            any("cardinality" in e.lower() and "p_start_cr_out" in e for e in errors),
+            f"Expected port cardinality error for p_start_cr_out, got: {errors}",
+        )
+
+    def test_permitted_multiple_port_cardinality(self) -> None:
+        """Ports with cardinality 'multiple' or undeclared single (such as control exec_in) allow fan-in/fan-out."""
+        # 1. In valid_graph, p_work_ctrl_in already receives 2 control edges (start + loop_gate).
+        errors = validate_graph(self.valid_graph)
+        self.assertEqual(errors, [], "Intentional control routing fan-in must remain permitted")
+
+        # 2. Explicitly setting cardinality: 'multiple' on data port allows multiple incoming edges
+        graph = copy.deepcopy(self.valid_graph)
+        # Find p_work_cr_in and set cardinality to multiple
+        for port in graph["nodes"][1]["ports"]:
+            if port["id"] == "p_work_cr_in":
+                port["cardinality"] = "multiple"
+                break
+        # Also set source p_start_cr_out to multiple so output fan-out isn't the blocker
+        for port in graph["nodes"][0]["ports"]:
+            if port["id"] == "p_start_cr_out":
+                port["cardinality"] = "multiple"
+                break
+
+        cr_port = copy.deepcopy(graph["nodes"][0]["ports"][1])
+        cr_port["id"] = "audit_cr_output"
+        graph["nodes"][1]["ports"].append(cr_port)
+
+        dup_edge = copy.deepcopy(graph["edges"][1])
+        dup_edge["id"] = "audit_duplicate_single_input"
+        dup_edge["source_node_id"] = "node_work"
+        dup_edge["source_port_id"] = "audit_cr_output"
+        dup_edge["target_node_id"] = "node_work"
+        dup_edge["target_port_id"] = "p_work_cr_in"
+        graph["edges"].append(dup_edge)
+
+        errors2 = validate_graph(graph)
+        self.assertEqual(errors2, [], f"Expected multiple cardinality to be accepted, got: {errors2}")
+
 
 class TestPublicationAndWorkflowIsolation(unittest.TestCase):
     def setUp(self) -> None:
@@ -407,6 +496,40 @@ class TestEditorHttpIntegration(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertEqual(err_res["status"], "error")
         self.assertIn("errors", err_res)
+
+    def test_validate_and_publish_invalid_fan_in_http(self) -> None:
+        graph = copy.deepcopy(self.valid_graph)
+        cr_port = copy.deepcopy(graph["nodes"][0]["ports"][1])
+        cr_port["id"] = "audit_cr_output"
+        graph["nodes"][1]["ports"].append(cr_port)
+
+        dup_edge = copy.deepcopy(graph["edges"][1])
+        dup_edge["id"] = "audit_duplicate_single_input"
+        dup_edge["source_node_id"] = "node_work"
+        dup_edge["source_port_id"] = "audit_cr_output"
+        dup_edge["target_node_id"] = "node_work"
+        dup_edge["target_port_id"] = "p_work_cr_in"
+        graph["edges"].append(dup_edge)
+
+        status, val_res = self.request("POST", "/api/editor/validate", {
+            "graph": graph,
+        })
+        self.assertEqual(status, 200)
+        self.assertFalse(val_res["valid"])
+        self.assertTrue(
+            any("cardinality" in e.lower() and "p_work_cr_in" in e for e in val_res["errors"]),
+            f"Expected cardinality error in validation response, got: {val_res}",
+        )
+
+        status, pub_res = self.request("POST", "/api/editor/publish", {
+            "graph": graph,
+        })
+        self.assertEqual(status, 400)
+        self.assertEqual(pub_res["status"], "error")
+        self.assertTrue(
+            any("cardinality" in e.lower() and "p_work_cr_in" in e for e in pub_res["errors"]),
+            f"Expected cardinality error in publication response, got: {pub_res}",
+        )
 
 
 if __name__ == "__main__":
