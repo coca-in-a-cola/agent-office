@@ -61,6 +61,8 @@ class ServerCase(unittest.TestCase):
             None if body is None else json.dumps(body).encode("utf-8"))
         req = urllib.request.Request(f"http://127.0.0.1:{self.port}{path}", data=data,
                                      method=method)
+        req.add_header("Authorization", "Bearer trusted-local-token")
+        req.add_header("X-Actor-ID", "owner")
         if data is not None:
             req.add_header("Content-Type", "application/json")
         try:

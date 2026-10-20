@@ -414,6 +414,9 @@ class TestEditorHttpIntegration(unittest.TestCase):
             data=data,
             method=method,
         )
+        req.add_header("Authorization", "Bearer trusted-local-token")
+        req.add_header("X-Actor-ID", "webdev")
+        req.add_header("X-Actor-Role", "webdev")
         if data is not None:
             req.add_header("Content-Type", "application/json")
         try:

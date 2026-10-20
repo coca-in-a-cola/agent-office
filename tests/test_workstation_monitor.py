@@ -46,7 +46,7 @@ CREATE TABLE tasks (
     degraded INTEGER NOT NULL DEFAULT 0, degraded_reason TEXT,
     "commit" INTEGER NOT NULL DEFAULT 0, test_cmd TEXT, allowed_dirty TEXT DEFAULT '[]',
     initial_git_sha TEXT, executor TEXT DEFAULT 'omo', project_id TEXT, accepted_at TEXT,
-    delivered_at TEXT
+    delivered_at TEXT, role TEXT, model_policy TEXT
 );
 """
 
@@ -72,7 +72,8 @@ class BridgeFixture:
     def add(self, task_id: str, title: str, state: str, *, goal: str = "",
             minutes_ago: int = 1, pid: int | None = None, model: str = "claude-opus-5-5",
             executor: str = "claude", stdout: str | None = None, stderr: str | None = None,
-            completed: bool = False, project_id: str | None = None) -> Path:
+            completed: bool = False, project_id: str | None = None,
+            role: str | None = None) -> Path:
         task_dir = self.artifacts_dir / task_id
         task_dir.mkdir()
         artifacts = []
@@ -87,13 +88,13 @@ class BridgeFixture:
                 "INSERT INTO tasks (id, idempotency_key, title, goal, repo, working_dir,"
                 " complexity, acceptance_criteria, constraints, permissions, budget, state,"
                 " artifacts, created_at, updated_at, started_at, completed_at, pid,"
-                " actual_model, executor, project_id, exit_code)"
+                " actual_model, executor, project_id, exit_code, role)"
                 " VALUES (?, ?, ?, ?, '', ?, 'medium', '[]', '[]', '[]', '{}', ?, ?, ?, ?, ?,"
-                " ?, ?, ?, ?, ?, ?)",
+                " ?, ?, ?, ?, ?, ?, ?)",
                 (task_id, f"key-{task_id}", title, goal, str(self.root / "nowhere"), state,
                  json.dumps(artifacts), started.isoformat(), (done or started).isoformat(),
                  started.isoformat(), done.isoformat() if done else None, pid, model,
-                 executor, project_id, 0 if completed else None))
+                 executor, project_id, 0 if completed else None, role))
         return task_dir
 
 
@@ -160,6 +161,10 @@ class TestBridgeWorkstationResolution(unittest.TestCase):
 
     def test_unclassified_tasks_go_to_director(self) -> None:
         self.assertEqual(resolve_bridge_workstation({"title": "Misc chores"}), "tyler")
+
+    def test_explicit_role_overrides_keywords_and_avoids_coder(self) -> None:
+        self.assertEqual(resolve_bridge_workstation({"title": "Generic implementer task", "role": "webdev"}), "webdev")
+        self.assertEqual(resolve_bridge_workstation({"title": "Godot shader pass", "role": "webdev"}), "webdev")
 
 
 class TestBridgeIngestion(unittest.TestCase):
@@ -231,6 +236,24 @@ class TestBridgeIngestion(unittest.TestCase):
         self.assertEqual(agent_map["qa"]["status"], "idle")
         self.assertIsNone(agent_map["qa"]["bridge_task"])
 
+    def test_sandbox_webdev_running_and_failed_projection(self) -> None:
+        self.bridge.add("tb-web-run", "Generic implementer task", "running",
+                        pid=os.getpid(), role="webdev")
+        state1 = get_office_state(self.storage, bridge=self.bridge.reader)
+        webdev1 = self._agent(state1, "webdev")
+        self.assertEqual(webdev1["status"], "working")
+        self.assertEqual(webdev1["active_task_id"], "tb-web-run")
+
+        coder1 = self._agent(state1, "coder")
+        self.assertNotEqual(coder1.get("active_task_id"), "tb-web-run")
+
+        self.bridge.add("tb-web-fail", "Generic implementer task failed", "failed",
+                        completed=True, role="webdev")
+        state2 = get_office_state(self.storage, bridge=self.bridge.reader)
+        webdev2 = self._agent(state2, "webdev")
+        self.assertIsNotNone(webdev2.get("recent_failure"))
+        self.assertEqual(webdev2["recent_failure"]["task_id"], "tb-web-fail")
+
 
 class TestWorkstationMonitorApi(unittest.TestCase):
     """GET /api/agents/{id}/monitor and GET /api/tasks/{id}/log over HTTP."""
@@ -259,7 +282,10 @@ class TestWorkstationMonitorApi(unittest.TestCase):
 
     def get(self, path: str) -> tuple[int, dict]:
         try:
-            with urllib.request.urlopen(self.base + path, timeout=5) as res:
+            req = urllib.request.Request(self.base + path)
+            req.add_header("Authorization", "Bearer trusted-local-token")
+            req.add_header("X-Actor-ID", "tyler")
+            with urllib.request.urlopen(req, timeout=5) as res:
                 return res.status, json.loads(res.read().decode("utf-8"))
         except urllib.error.HTTPError as err:
             return err.code, json.loads(err.read().decode("utf-8"))
@@ -344,8 +370,11 @@ class TestWorkstationMonitorApi(unittest.TestCase):
         thread.start()
         try:
             url = f"http://127.0.0.1:{server.server_address[1]}/api/tasks/tb-live/log"
+            req = urllib.request.Request(url)
+            req.add_header("Authorization", "Bearer trusted-local-token")
+            req.add_header("X-Actor-ID", "tyler")
             with self.assertRaises(urllib.error.HTTPError) as ctx:
-                urllib.request.urlopen(url, timeout=5)
+                urllib.request.urlopen(req, timeout=5)
             self.assertEqual(ctx.exception.code, 503)
         finally:
             server.shutdown()
