@@ -18,7 +18,7 @@ import sqlite3
 import time
 from typing import Any, Callable, Mapping
 
-from .bridge_port import BridgePort, SubmitRequest
+from .bridge_port import BridgePort, BridgeTaskStatus, SubmitRequest
 from .definitions import Outcome
 from .engine import TaskEvent, WorkflowEngine
 from .storage import RepositoryError, WorkflowRepository, _split_sql
@@ -64,7 +64,41 @@ CREATE TRIGGER IF NOT EXISTS activation_receipts_task_id_pinned
     BEFORE UPDATE OF task_id ON activation_receipts
     WHEN OLD.task_id IS NOT NULL AND NEW.task_id IS NOT OLD.task_id
     BEGIN SELECT RAISE(ABORT, 'activation receipt task correlation is immutable'); END;
+
+CREATE TABLE IF NOT EXISTS writer_stop_barriers (
+    barrier_id TEXT PRIMARY KEY,
+    attempt_id TEXT NOT NULL UNIQUE,
+    run_id TEXT NOT NULL REFERENCES workflow_runs(run_id),
+    node TEXT NOT NULL,
+    iteration INTEGER NOT NULL CHECK (iteration >= 1),
+    attempt_no INTEGER NOT NULL CHECK (attempt_no >= 1),
+    task_id TEXT,
+    stop_status TEXT NOT NULL CHECK (stop_status IN ('stopped', 'unknown', 'still_running')),
+    observed_state TEXT,
+    reason TEXT NOT NULL DEFAULT '',
+    evidence_json TEXT NOT NULL DEFAULT '{}',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
 """
+
+
+@dataclass(frozen=True, slots=True)
+class WriterStopObservation:
+    barrier_id: str
+    attempt_id: str
+    run_id: str
+    node: str
+    iteration: int
+    attempt_no: int
+    task_id: str | None
+    stopped: bool
+    stop_status: str  # "stopped", "unknown", "still_running"
+    observed_state: str | None
+    reason: str
+    evidence: Mapping[str, Any] = field(default_factory=dict)
+    status: BridgeTaskStatus | None = None
+
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,6 +155,22 @@ class ActivationBoundary:
             raise PinnedInvariantError(
                 f"Requested definition {definition_hash} does not match pinned {pinned_def_hash}"
             )
+
+        if attempt_no > 1:
+            pred_id = f"{run_id}/{node}/{iteration}/{attempt_no - 1}"
+            try:
+                pred_attempt = self.repo.get_attempt(pred_id)
+                if pred_attempt is not None and pred_attempt["status"] == "timed_out":
+                    pred_barrier = self.repo.db.execute(
+                        "SELECT stop_status FROM writer_stop_barriers WHERE attempt_id=?", (pred_id,)
+                    ).fetchone()
+                    if pred_barrier is None or pred_barrier["stop_status"] != "stopped":
+                        raise ActivationError(
+                            f"cannot activate successor attempt {attempt_no} on {node}: "
+                            f"predecessor {pred_id} writer-stop barrier unconfirmed"
+                        )
+            except RepositoryError:
+                pass
 
         activation_id = f"act:{run_id}:{node}:{iteration}:{attempt_no}"
         idempotency_key = f"agent-office-workflow:{run_id}/{node}/{iteration}/{attempt_no}"
@@ -318,3 +368,176 @@ class ActivationBoundary:
             evidence=dict(evidence or {}),
             reason=reason,
         )
+
+    def enforce_writer_stop_barrier(self, attempt: Mapping[str, Any]) -> WriterStopObservation:
+        now = self.clock()
+        run_id = attempt["run_id"]
+        node = attempt["node"]
+        iteration = attempt["iteration"]
+        attempt_no = attempt["attempt_no"]
+        attempt_id = attempt["attempt_id"]
+        task_id = attempt.get("task_id")
+        idempotency_key = (
+            attempt.get("idempotency_key")
+            or f"agent-office-workflow:{run_id}/{node}/{iteration}/{attempt_no}"
+        )
+        barrier_id = f"barrier:{attempt_id}"
+
+        row = self.repo.db.execute(
+            "SELECT * FROM writer_stop_barriers WHERE attempt_id=?", (attempt_id,)
+        ).fetchone()
+        if row is not None and row["stop_status"] == "stopped":
+            cached_status = None
+            if row["task_id"]:
+                try:
+                    cached_status = self.bridge.get_task_status(row["task_id"])
+                except Exception:
+                    pass
+            if cached_status is None:
+                cached_status = BridgeTaskStatus(
+                    task_id=row["task_id"] or "",
+                    idempotency_key=idempotency_key,
+                    state=row["observed_state"] or "cancelled",
+                    evidence=json.loads(row["evidence_json"] or "{}"),
+                )
+            return WriterStopObservation(
+                barrier_id=row["barrier_id"],
+                attempt_id=row["attempt_id"],
+                run_id=row["run_id"],
+                node=row["node"],
+                iteration=row["iteration"],
+                attempt_no=row["attempt_no"],
+                task_id=row["task_id"],
+                stopped=True,
+                stop_status="stopped",
+                observed_state=row["observed_state"],
+                reason=row["reason"] or "previously confirmed stopped",
+                evidence=json.loads(row["evidence_json"] or "{}"),
+                status=cached_status,
+            )
+
+        try:
+            status: BridgeTaskStatus | None = None
+            if task_id is not None:
+                status = self.bridge.get_task_status(task_id)
+            if status is None and idempotency_key:
+                status = self.bridge.reconcile_task(idempotency_key)
+        except Exception as exc:
+            return self._record_barrier_result(
+                barrier_id, attempt, task_id, "unknown", None,
+                f"bridge communication error during stop verification: {exc}", {}, None, now
+            )
+
+        if status is None:
+            return self._record_barrier_result(
+                barrier_id, attempt, task_id, "unknown", None,
+                "task missing in Bridge; no process-stop evidence", {}, None, now
+            )
+
+        task_id = status.task_id
+
+        if not status.terminal:
+            try:
+                self.bridge.cancel_task(status.task_id, "workflow deadline exceeded")
+                status = self.bridge.get_task_status(status.task_id)
+            except Exception as exc:
+                return self._record_barrier_result(
+                    barrier_id, attempt, task_id, "still_running", getattr(status, "state", None),
+                    f"cancel failed or not observed: {exc}", {}, status, now
+                )
+
+        if status is None or not status.terminal:
+            observed = status.state if status else "missing"
+            return self._record_barrier_result(
+                barrier_id, attempt, task_id, "still_running" if status else "unknown", observed,
+                f"executor still in non-terminal state '{observed}' after cancel attempt", {}, status, now
+            )
+
+        return self._record_barrier_result(
+            barrier_id, attempt, task_id, "stopped", status.state,
+            f"confirmed terminal stop in Bridge: {status.state}", dict(status.evidence or {}), status, now
+        )
+
+    def _record_barrier_result(
+        self,
+        barrier_id: str,
+        attempt: Mapping[str, Any],
+        task_id: str | None,
+        stop_status: str,
+        observed_state: str | None,
+        reason: str,
+        evidence: Mapping[str, Any],
+        status: BridgeTaskStatus | None,
+        now: float,
+    ) -> WriterStopObservation:
+        stopped = (stop_status == "stopped")
+        evidence_json = json.dumps(dict(evidence or {}), sort_keys=True)
+        with self.repo.transaction():
+            self.repo.db.execute(
+                """
+                INSERT INTO writer_stop_barriers (
+                    barrier_id, attempt_id, run_id, node, iteration, attempt_no,
+                    task_id, stop_status, observed_state, reason, evidence_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(attempt_id) DO UPDATE SET
+                    task_id=excluded.task_id,
+                    stop_status=excluded.stop_status,
+                    observed_state=excluded.observed_state,
+                    reason=excluded.reason,
+                    evidence_json=excluded.evidence_json,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    barrier_id,
+                    attempt["attempt_id"],
+                    attempt["run_id"],
+                    attempt["node"],
+                    attempt["iteration"],
+                    attempt["attempt_no"],
+                    task_id,
+                    stop_status,
+                    observed_state,
+                    reason,
+                    evidence_json,
+                    now,
+                    now,
+                ),
+            )
+        return WriterStopObservation(
+            barrier_id=barrier_id,
+            attempt_id=attempt["attempt_id"],
+            run_id=attempt["run_id"],
+            node=attempt["node"],
+            iteration=attempt["iteration"],
+            attempt_no=attempt["attempt_no"],
+            task_id=task_id,
+            stopped=stopped,
+            stop_status=stop_status,
+            observed_state=observed_state,
+            reason=reason,
+            evidence=evidence,
+            status=status,
+        )
+
+    def get_writer_stop_barrier(self, attempt_id: str) -> WriterStopObservation | None:
+        row = self.repo.db.execute(
+            "SELECT * FROM writer_stop_barriers WHERE attempt_id=?", (attempt_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return WriterStopObservation(
+            barrier_id=row["barrier_id"],
+            attempt_id=row["attempt_id"],
+            run_id=row["run_id"],
+            node=row["node"],
+            iteration=row["iteration"],
+            attempt_no=row["attempt_no"],
+            task_id=row["task_id"],
+            stopped=(row["stop_status"] == "stopped"),
+            stop_status=row["stop_status"],
+            observed_state=row["observed_state"],
+            reason=row["reason"],
+            evidence=json.loads(row["evidence_json"] or "{}"),
+            status=None,
+        )
+

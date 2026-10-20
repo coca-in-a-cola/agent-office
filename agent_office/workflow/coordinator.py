@@ -120,13 +120,22 @@ class Coordinator:
 
     def _inspect(self, intent: Mapping[str, Any], attempt: Mapping[str, Any],
                  report: TickReport) -> None:
-        status = self.bridge.reconcile_task(attempt["idempotency_key"])
-        if status is not None and not status.terminal:
-            # Overdue executor: ask Bridge (the only process owner) to stop it
-            # so inspection sees a quiescent, preserved state.
-            self.bridge.cancel_task(status.task_id, "workflow deadline exceeded")
-            status = self.bridge.get_task_status(status.task_id)
-        self.engine.resolve_inspection(intent["intent_id"], attempt["attempt_id"], status)
+        observation = self.boundary.enforce_writer_stop_barrier(attempt)
+        if not observation.stopped:
+            block_reason = (
+                f"reconciliation_required: executor stop unconfirmed for attempt "
+                f"{attempt['attempt_id']} ({observation.reason})"
+            )
+            self.engine.block_run(attempt["run_id"], block_reason)
+            with self.repo.transaction():
+                self.repo.update_intent(intent["intent_id"], self.engine.clock(), status="void")
+                self.repo.update_attempt(
+                    attempt["attempt_id"],
+                    reason=f"barrier blocked: {observation.reason}",
+                )
+            return
+
+        self.engine.resolve_inspection(intent["intent_id"], attempt["attempt_id"], observation.status)
         report.inspected += 1
 
     # -- polling ---------------------------------------------------------------
