@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, Building, GitBranch, X } from 'lucide-react';
+import { AlertTriangle, Building, Edit3, Eye, GitBranch, X } from 'lucide-react';
 import { StudioFocus } from '../../types';
 import { RunCommand, workflowApi } from '../../workflowApi';
 import {
@@ -14,6 +14,7 @@ import { GraphView } from './GraphView';
 import { NODE_STATE_STYLE, NodeStatusBadge } from './NodeStatusBadge';
 import { RunInspector } from './RunInspector';
 import { WorkflowSelector } from './WorkflowSelector';
+import { EditorView } from './EditorView';
 
 const POLL_MS = 2500;
 const LEGEND: NodeState[] = [
@@ -33,6 +34,7 @@ interface ProcessStudioProps {
 }
 
 export const ProcessStudio: React.FC<ProcessStudioProps> = ({ focus = null, onDismissFocus }) => {
+  const [studioMode, setStudioMode] = useState<'observe' | 'edit'>('edit');
   const [definitions, setDefinitions] = useState<DefinitionSummary[]>([]);
   const [definitionCache, setDefinitionCache] = useState<Record<string, WorkflowDefinition>>({});
   const [runs, setRuns] = useState<RunSummary[]>([]);
@@ -90,9 +92,9 @@ export const ProcessStudio: React.FC<ProcessStudioProps> = ({ focus = null, onDi
     return () => clearInterval(timer);
   }, [refresh]);
 
-  // A new Tycoon View jump while mounted re-targets run and node.
   useEffect(() => {
     if (!focus) return;
+    setStudioMode('observe');
     setSelectedRunId(focus.runId);
     setSelectedNode(focus.node);
     setDetail((d) => (d?.run.run_id === focus.runId ? d : null));
@@ -146,6 +148,39 @@ export const ProcessStudio: React.FC<ProcessStudioProps> = ({ focus = null, onDi
   const focusDef = definition?.nodes.find((n) => n.name === focusNode);
   const currentDef = definition?.nodes.find((n) => n.name === detail?.run.current_node);
 
+  if (studioMode === 'edit') {
+    return (
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="h-10 border-b border-slate-800 bg-[#0f172a] px-4 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2">
+            <GitBranch size={15} className="text-cyan-400" />
+            <span className="font-bold text-xs text-slate-100">Process Studio</span>
+          </div>
+          <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-xs">
+            <button
+              onClick={() => setStudioMode('edit')}
+              className="flex items-center gap-1.5 px-3 py-1 rounded-md font-medium transition bg-cyan-500 text-slate-950 font-semibold shadow-sm"
+            >
+              <Edit3 size={13} />
+              <span>Edit Graph</span>
+            </button>
+            <button
+              onClick={() => setStudioMode('observe')}
+              className="flex items-center gap-1.5 px-3 py-1 rounded-md font-medium transition text-slate-400 hover:text-slate-200"
+            >
+              <Eye size={13} />
+              <span>Observe Run</span>
+            </button>
+          </div>
+        </div>
+        <EditorView
+          onSwitchToObserve={() => setStudioMode('observe')}
+          activeRunId={detail?.run.run_id}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 flex overflow-hidden">
       {/* Run list */}
@@ -163,14 +198,32 @@ export const ProcessStudio: React.FC<ProcessStudioProps> = ({ focus = null, onDi
       {/* Graph + controls */}
       <main className="flex-1 flex flex-col overflow-hidden">
         <div className="px-5 py-3 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-bold text-slate-100 flex items-center gap-2">
-              <GitBranch size={16} className="text-cyan-400" />
-              {definition ? `${definition.name} v${definition.version}` : 'Process Studio'}
-            </h2>
-            <p className="text-[10px] font-mono text-slate-500" title={definition?.definition_hash}>
-              {definition?.definition_hash ?? 'loading definition…'}
-            </p>
+          <div className="flex items-center gap-4">
+            <div>
+              <h2 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                <GitBranch size={16} className="text-cyan-400" />
+                {definition ? `${definition.name} v${definition.version}` : 'Process Studio'}
+              </h2>
+              <p className="text-[10px] font-mono text-slate-500" title={definition?.definition_hash}>
+                {definition?.definition_hash ?? 'loading definition…'}
+              </p>
+            </div>
+            <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-xs">
+              <button
+                onClick={() => setStudioMode('edit')}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md font-medium transition text-slate-400 hover:text-slate-200"
+              >
+                <Edit3 size={12} />
+                <span>Edit Graph</span>
+              </button>
+              <button
+                onClick={() => setStudioMode('observe')}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md font-medium transition bg-cyan-500 text-slate-950 font-semibold shadow-sm"
+              >
+                <Eye size={12} />
+                <span>Observe Run</span>
+              </button>
+            </div>
           </div>
           {detail && (
             <DebugControls

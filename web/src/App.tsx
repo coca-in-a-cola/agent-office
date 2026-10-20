@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Agent, OfficeState, StudioFocus } from './types';
+import { OfficeState, StudioFocus } from './types';
 import { IsometricOffice } from './components/IsometricOffice';
 import { EmployeeRoster } from './components/EmployeeRoster';
 import { StatusBadge } from './components/StatusBadge';
@@ -10,8 +10,6 @@ import {
   Building2,
   Activity,
   CheckCircle2,
-  AlertCircle,
-  RefreshCw,
   Cpu,
   Layers,
   X,

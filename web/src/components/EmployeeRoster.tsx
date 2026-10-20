@@ -10,8 +10,6 @@ import {
   Wrench,
   Clock,
   Sparkles,
-  ChevronRight,
-  Filter,
   GitBranch,
   ExternalLink,
   Terminal,

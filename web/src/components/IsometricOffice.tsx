@@ -184,7 +184,6 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
       <div className="absolute bottom-4 left-4 z-20 flex flex-wrap items-center gap-2 bg-slate-900/85 backdrop-blur-md px-3 py-2 rounded-lg border border-slate-700/60 shadow-lg text-xs">
         <span className="text-slate-400 font-medium">Workstations:</span>
         {Object.entries(WORKSTATION_CONFIG).map(([id, conf]) => {
-          const agent = getAgentData(id);
           const isSelected = selectedAgentId?.toLowerCase() === id;
           return (
             <button

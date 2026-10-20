@@ -131,12 +131,20 @@ export interface TaskLog {
   artifacts: TaskArtifact[];
 }
 
+export interface ModelProviderEntry {
+  model: string;
+  provider: string;
+  priority?: number;
+}
+
 export interface Agent {
   id: string;
   profile_name: string;
   role: string;
   status: AgentStatus;
   current_model?: string;
+  models?: ModelProviderEntry[];
+  routing_strategy?: 'priority' | 'round_robin';
   capabilities?: string[];
   metadata?: {
     desk?: string;
