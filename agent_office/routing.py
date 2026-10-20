@@ -352,6 +352,15 @@ DEFAULT_CANDIDATES: list[AgentCandidate] = [
         metadata={"desk": "operations", "position": [1, 1]},
     ),
     AgentCandidate(
+        agent_id="webdev",
+        profile_name="WebDev",
+        role="Web Engineer",
+        capabilities=["react", "typescript", "tailwind", "vite", "web_apis", "browser_testing", "performance", "frontend", "ui_design", "coding", "code_writing"],
+        operational_stats=OperationalStats(latency_ms=190.0, error_rate=0.018, cost_per_token=0.00002, success_rate=0.98),
+        gamification_stats=GamificationStats(xp=3500, level=7, badges=["component_architect", "pixel_perfect"]),
+        metadata={"desk": "frontend", "position": [2, 0]},
+    ),
+    AgentCandidate(
         agent_id="qa",
         profile_name="QA",
         role="QA",
@@ -598,6 +607,10 @@ class HeuristicFallbackRouter:
             "backend", "frontend", "api", "endpoint", "bug", "fix", "feature",
             "refactor", "function", "class", "syntax", "logic", "database",
             "async", "model", "service", "handler", "controller",
+        ],
+        "webdev": [
+            "react", "typescript", "tailwind", "vite", "frontend", "ui", "web",
+            "component", "dom", "css", "browser", "html", "javascript", "web_apis",
         ],
         "devops": [
             "docker", "dockerfile", "container", "kubernetes", "k8s", "ci", "cd",
@@ -922,3 +935,581 @@ def get_default_router() -> JevAdapter:
     if _GLOBAL_ROUTER is None:
         _GLOBAL_ROUTER = JevAdapter()
     return _GLOBAL_ROUTER
+
+
+# ---------------------------------------------------------------------------
+# Model and Role Dispatch Routing (AO-NE-02 / AO-NODE-EDITOR-SPEC-v1 §2, §8)
+# ---------------------------------------------------------------------------
+
+
+class FailureKind(str, Enum):
+    """Classification of attempt failure for routing policy decisions."""
+
+    QUOTA = "quota"
+    AUTH = "auth"
+    PRODUCT_DEFECT = "product_defect"
+    TIMEOUT = "timeout"
+    UNKNOWN = "unknown"
+
+
+def classify_failure(
+    error_msg: str,
+    exit_code: Optional[int] = None,
+    is_test_failure: bool = False,
+) -> FailureKind:
+    """Classify failure string and exit code into FailureKind.
+
+    Invariants:
+    1. Product defects and test failures NEVER trigger provider roulette.
+    2. Quota / 429 / session limits place provider in cooldown and fail over.
+    3. Auth errors (401/403) are NOT quota: require explicit credential-route, else block.
+    4. Timeouts fence worker and inspect partial results.
+    """
+    if is_test_failure:
+        return FailureKind.PRODUCT_DEFECT
+
+    text = (error_msg or "").strip().lower()
+
+    # 1. Product defect heuristics (assertions, test frameworks, syntax errors)
+    if re.search(r"\b(?:assertionerror|failed test|failures=|tests failed|pytest|unittest|defect)\b", text):
+        return FailureKind.PRODUCT_DEFECT
+
+    # 2. Quota and rate limiting heuristics
+    if re.search(
+        r"\b(?:session limit|usage limit|hit your session limit|usage limit has been reached|"
+        r"rate limit|rate_limit_error|quota|insufficient_quota|resource_exhausted|overloaded|429)\b",
+        text,
+    ):
+        return FailureKind.QUOTA
+
+    # 3. Authentication and authorization heuristics
+    if re.search(
+        r"\b(?:401|403|unauthorized|forbidden|authentication_error|invalid_api_key|"
+        r"invalid api key|bad_token|permission_denied)\b",
+        text,
+    ):
+        return FailureKind.AUTH
+
+    # 4. Timeout heuristics
+    if re.search(r"\b(?:timeout|timed out|deadline exceeded|execution_timeout)\b", text):
+        return FailureKind.TIMEOUT
+
+    # Exit code analysis
+    if exit_code is not None and exit_code > 0:
+        return FailureKind.PRODUCT_DEFECT
+
+    return FailureKind.UNKNOWN
+
+
+@dataclass
+class RouteCandidate:
+    """Candidate execution route combining model, provider, and adapter."""
+
+    route_id: str
+    provider: str
+    model: str
+    executor: str  # "omo" | "claude"
+    priority: int = 1
+    enabled: bool = True
+    capabilities: list[str] = field(default_factory=lambda: ["code_writing", "text"])
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "route_id": self.route_id,
+            "provider": self.provider,
+            "model": self.model,
+            "executor": self.executor,
+            "priority": self.priority,
+            "enabled": self.enabled,
+            "capabilities": list(self.capabilities),
+            "metadata": dict(self.metadata),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> RouteCandidate:
+        return cls(
+            route_id=str(data.get("route_id") or data.get("id") or str(uuid.uuid4())),
+            provider=str(data.get("provider", "unknown")),
+            model=str(data.get("model", "")),
+            executor=str(data.get("executor", "omo")),
+            priority=int(data.get("priority", 1)),
+            enabled=bool(data.get("enabled", True)),
+            capabilities=list(data.get("capabilities", ["code_writing", "text"])),
+            metadata=dict(data.get("metadata", {})),
+        )
+
+
+@dataclass
+class ModelPolicy:
+    """Ordered model dispatch policy supporting priority and provider round-robin."""
+
+    policy_id: str
+    revision: str = "v1"
+    strategy: str = "priority"  # "priority" | "round_robin"
+    routes: list[RouteCandidate] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "policy_id": self.policy_id,
+            "revision": self.revision,
+            "strategy": self.strategy,
+            "routes": [r.to_dict() for r in self.routes],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ModelPolicy:
+        raw_routes = data.get("routes", [])
+        routes = [RouteCandidate.from_dict(r) for r in raw_routes]
+        return cls(
+            policy_id=str(data.get("policy_id", "default_policy")),
+            revision=str(data.get("revision", "v1")),
+            strategy=str(data.get("strategy", "priority")).lower(),
+            routes=routes,
+        )
+
+
+@dataclass
+class RouteResolution:
+    """Resolved execution route for a specific attempt."""
+
+    route_id: str
+    provider: str
+    requested_model: str
+    executor: str
+    role: str
+    policy_id: str
+    policy_strategy: str
+    actual_model: Optional[str] = None
+    model_evidence: Optional[str] = None
+    reservation_id: Optional[str] = None
+    attempt_no: int = 1
+    fallback_reasons: list[str] = field(default_factory=list)
+
+    def record_actual_model(self, actual: Optional[str], evidence: Optional[str] = None) -> None:
+        """Record verified actual model or mark explicitly as unknown."""
+        act_str = str(actual or "").strip()
+        if act_str:
+            self.actual_model = act_str
+            self.model_evidence = evidence or "executor_reported"
+        else:
+            self.actual_model = "unknown"
+            self.model_evidence = "unverified"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "route_id": self.route_id,
+            "provider": self.provider,
+            "requested_model": self.requested_model,
+            "executor": self.executor,
+            "role": self.role,
+            "policy_id": self.policy_id,
+            "policy_strategy": self.policy_strategy,
+            "actual_model": self.actual_model,
+            "model_evidence": self.model_evidence,
+            "reservation_id": self.reservation_id,
+            "attempt_no": self.attempt_no,
+            "fallback_reasons": list(self.fallback_reasons),
+        }
+
+
+def intersect_capabilities(
+    role_capabilities: list[str],
+    route_capabilities: list[str],
+    executor_capabilities: list[str],
+    required_capabilities: list[str],
+    model: str = "",
+    executor: str = "omo",
+) -> tuple[bool, list[str]]:
+    """Verify orthogonal capability intersection and architectural compatibility.
+
+    Invariants:
+    1. 3D/image generators never serve as fallback routes for code-writing tasks.
+    2. Claude models must run via Claude CLI adapter, not OMO.
+    3. Non-Claude models must not be submitted to Claude CLI adapter.
+    """
+    reasons: list[str] = []
+    req_set = {c.lower() for c in required_capabilities}
+
+    # 1. Reject 3D / visual generators for code tasks
+    is_code_task = bool(req_set & {"code_writing", "coding", "python", "typescript", "bugfix", "refactor"})
+    is_3d_route = any("3d" in c.lower() or "visual" in c.lower() for c in route_capabilities)
+    if is_code_task and is_3d_route and not any(c.lower() in ("code_writing", "coding") for c in route_capabilities):
+        reasons.append("3D/image generator cannot serve as fallback for code-writing task")
+        return False, reasons
+
+    # 2. Executor / Model compatibility matrix
+    m_lower = model.lower()
+    if executor == "omo" and "claude" in m_lower:
+        reasons.append(f"Claude model '{model}' cannot run on OMO executor")
+        return False, reasons
+    if executor == "claude" and not ("claude" in m_lower or "anthropic" in m_lower):
+        reasons.append(f"Non-Claude model '{model}' cannot run on Claude executor")
+        return False, reasons
+
+    # 3. Required capabilities check against union of role, route, executor
+    # Route must provide core capabilities (e.g. text/code)
+    for rc in required_capabilities:
+        rc_lower = rc.lower()
+        has_in_route = any(rc_lower in c.lower() or c.lower() in rc_lower for c in route_capabilities)
+        has_in_role = any(rc_lower in c.lower() or c.lower() in rc_lower for c in role_capabilities)
+        if not (has_in_route or has_in_role):
+            reasons.append(f"Required capability '{rc}' not satisfied by route or role")
+            return False, reasons
+
+    return True, []
+
+
+class DurableRouteStore:
+    """Thread-safe SQLite store for provider cooldowns, cursors, and route reservations."""
+
+    def __init__(self, db_path: str = ":memory:") -> None:
+        import sqlite3
+        import threading
+
+        self.db_path = db_path
+        self._sqlite3 = sqlite3
+        self._lock = threading.RLock()
+        if db_path == ":memory:":
+            self._mem_conn = sqlite3.connect(":memory:", check_same_thread=False, timeout=30.0)
+            self._mem_conn.row_factory = sqlite3.Row
+        else:
+            self._mem_conn = None
+        self._init_schema()
+
+    def _get_connection(self):
+        if self._mem_conn is not None:
+            return self._mem_conn
+        conn = self._sqlite3.connect(self.db_path, timeout=30.0)
+        conn.row_factory = self._sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL;")
+        return conn
+
+    def _init_schema(self) -> None:
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS provider_cooldowns (
+                    provider TEXT PRIMARY KEY,
+                    cooldown_until REAL NOT NULL,
+                    reason TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS provider_cursors (
+                    policy_key TEXT PRIMARY KEY,
+                    cursor INTEGER NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL
+                );
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS route_reservations (
+                    reservation_key TEXT PRIMARY KEY,
+                    run_id TEXT,
+                    activation_id TEXT,
+                    attempt_no INTEGER,
+                    route_id TEXT NOT NULL,
+                    provider TEXT NOT NULL,
+                    requested_model TEXT NOT NULL,
+                    executor TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    policy_id TEXT,
+                    created_at TEXT NOT NULL
+                );
+                """
+            )
+            conn.commit()
+
+    def set_provider_cooldown(self, provider: str, duration_seconds: float = 1800.0, reason: str = "") -> None:
+        cooldown_until = time.time() + duration_seconds
+        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO provider_cooldowns (provider, cooldown_until, reason, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(provider) DO UPDATE SET
+                    cooldown_until = excluded.cooldown_until,
+                    reason = excluded.reason,
+                    updated_at = excluded.updated_at;
+                """,
+                (provider, cooldown_until, reason, now, now),
+            )
+            conn.commit()
+
+    def get_provider_cooldown(self, provider: str) -> Optional[float]:
+        now = time.time()
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT cooldown_until FROM provider_cooldowns WHERE provider = ?;",
+                (provider,),
+            ).fetchone()
+            if row:
+                until = float(row["cooldown_until"])
+                if until > now:
+                    return until
+                conn.execute("DELETE FROM provider_cooldowns WHERE provider = ?;", (provider,))
+                conn.commit()
+            return None
+
+    def is_provider_in_cooldown(self, provider: str) -> bool:
+        return self.get_provider_cooldown(provider) is not None
+
+    def clear_provider_cooldown(self, provider: str) -> None:
+        with self._get_connection() as conn:
+            conn.execute("DELETE FROM provider_cooldowns WHERE provider = ?;", (provider,))
+            conn.commit()
+
+    def get_provider_cursor(self, policy_key: str) -> int:
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT cursor FROM provider_cursors WHERE policy_key = ?;",
+                (policy_key,),
+            ).fetchone()
+            if row:
+                return int(row["cursor"])
+            return 0
+
+    def set_provider_cursor(self, policy_key: str, cursor: int) -> None:
+        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO provider_cursors (policy_key, cursor, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(policy_key) DO UPDATE SET
+                    cursor = excluded.cursor,
+                    updated_at = excluded.updated_at;
+                """,
+                (policy_key, cursor, now),
+            )
+            conn.commit()
+
+    def advance_cursor_atomic(self, policy_key: str, modulo: int) -> int:
+        if modulo <= 0:
+            return 0
+        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        with self._lock:
+            with self._get_connection() as conn:
+                row = conn.execute(
+                    "SELECT cursor FROM provider_cursors WHERE policy_key = ?;",
+                    (policy_key,),
+                ).fetchone()
+                current = int(row["cursor"]) if row else 0
+                selected = current % modulo
+                nxt = (selected + 1) % modulo
+                conn.execute(
+                    """
+                    INSERT INTO provider_cursors (policy_key, cursor, updated_at)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(policy_key) DO UPDATE SET
+                        cursor = excluded.cursor,
+                        updated_at = excluded.updated_at;
+                    """,
+                    (policy_key, nxt, now),
+                )
+                conn.commit()
+                return selected
+
+    def get_reservation(self, reservation_key: str) -> Optional[dict[str, Any]]:
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM route_reservations WHERE reservation_key = ?;",
+                (reservation_key,),
+            ).fetchone()
+            if row:
+                return dict(row)
+            return None
+
+    def save_reservation(
+        self,
+        reservation_key: str,
+        run_id: str,
+        activation_id: str,
+        attempt_no: int,
+        route_id: str,
+        provider: str,
+        requested_model: str,
+        executor: str,
+        role: str,
+        policy_id: str = "",
+    ) -> bool:
+        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO route_reservations (
+                    reservation_key, run_id, activation_id, attempt_no,
+                    route_id, provider, requested_model, executor, role, policy_id, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(reservation_key) DO NOTHING;
+                """,
+                (
+                    reservation_key,
+                    run_id,
+                    activation_id,
+                    attempt_no,
+                    route_id,
+                    provider,
+                    requested_model,
+                    executor,
+                    role,
+                    policy_id,
+                    now,
+                ),
+            )
+            conn.commit()
+            return True
+
+
+class ModelDispatchRouter:
+    """Normative Model & Role Dispatch Router implementing AO-NODE-EDITOR-SPEC-v1 §2 & §8."""
+
+    def __init__(self, store: Optional[DurableRouteStore] = None) -> None:
+        self.store = store or DurableRouteStore(":memory:")
+
+    def resolve_route(
+        self,
+        role: str,
+        policy: ModelPolicy,
+        required_capabilities: Optional[list[str]] = None,
+        role_capabilities: Optional[list[str]] = None,
+        executor_capabilities: Optional[dict[str, list[str]]] = None,
+        allowed_executors: Optional[list[str]] = None,
+        allowed_models: Optional[list[str]] = None,
+        run_id: Optional[str] = None,
+        activation_id: Optional[str] = None,
+        attempt_no: int = 1,
+        policy_key: Optional[str] = None,
+    ) -> tuple[Optional[RouteResolution], list[str]]:
+        """Resolve candidate route from policy with durable cursor, reservation, and cooldown checks."""
+        req_caps = required_capabilities or ["code_writing"]
+        role_caps = role_capabilities or []
+        exec_caps = executor_capabilities or {"omo": ["code_writing", "text"], "claude": ["code_writing", "text"]}
+        p_key = policy_key or (f"role:{role}" if role else "default_policy")
+
+        # 1. Check existing reservation for this exact attempt (Idempotent continuation)
+        reservation_key = None
+        if run_id and activation_id:
+            reservation_key = f"{run_id}:{activation_id}:{attempt_no}"
+            existing = self.store.get_reservation(reservation_key)
+            if existing:
+                res = RouteResolution(
+                    route_id=existing["route_id"],
+                    provider=existing["provider"],
+                    requested_model=existing["requested_model"],
+                    executor=existing["executor"],
+                    role=existing["role"],  # Role preserved
+                    policy_id=existing["policy_id"],
+                    policy_strategy=policy.strategy,
+                    reservation_id=reservation_key,
+                    attempt_no=attempt_no,
+                    fallback_reasons=["Restored from durable route reservation"],
+                )
+                return res, []
+
+        reasons: list[str] = []
+        enabled_routes = [r for r in policy.routes if r.enabled]
+        if not enabled_routes:
+            return None, ["Policy contains no enabled routes"]
+
+        # Filter candidates by allowlists and capability intersection
+        compatible_routes: list[RouteCandidate] = []
+        for cand in enabled_routes:
+            if allowed_executors and cand.executor not in allowed_executors:
+                reasons.append(f"Route '{cand.route_id}' executor '{cand.executor}' not in allowed_executors")
+                continue
+            if allowed_models and cand.model not in allowed_models:
+                reasons.append(f"Route '{cand.route_id}' model '{cand.model}' not in allowed_models")
+                continue
+
+            ex_caps = exec_caps.get(cand.executor, ["code_writing", "text"])
+            ok, cap_reasons = intersect_capabilities(
+                role_capabilities=role_caps,
+                route_capabilities=cand.capabilities,
+                executor_capabilities=ex_caps,
+                required_capabilities=req_caps,
+                model=cand.model,
+                executor=cand.executor,
+            )
+            if not ok:
+                reasons.extend(cap_reasons)
+                continue
+
+            compatible_routes.append(cand)
+
+        if not compatible_routes:
+            return None, reasons or ["No compatible routes match capability intersection"]
+
+        chosen: Optional[RouteCandidate] = None
+
+        # Strategy 1: Provider Round Robin
+        if policy.strategy == "round_robin":
+            providers: list[str] = []
+            for r in compatible_routes:
+                if r.provider not in providers:
+                    providers.append(r.provider)
+
+            n_prov = len(providers)
+            start_idx = self.store.advance_cursor_atomic(p_key, n_prov)
+
+            for step in range(n_prov):
+                idx = (start_idx + step) % n_prov
+                prov = providers[idx]
+                if self.store.is_provider_in_cooldown(prov):
+                    reasons.append(f"Provider '{prov}' is in cooldown")
+                    continue
+
+                prov_cands = [r for r in compatible_routes if r.provider == prov]
+                prov_cands.sort(key=lambda r: r.priority)
+                chosen = prov_cands[0]
+                break
+
+        # Strategy 2: Priority (default)
+        else:
+            sorted_routes = sorted(compatible_routes, key=lambda r: r.priority)
+            for cand in sorted_routes:
+                if self.store.is_provider_in_cooldown(cand.provider):
+                    reasons.append(f"Provider '{cand.provider}' is in cooldown (route '{cand.route_id}')")
+                    continue
+                chosen = cand
+                break
+
+        if not chosen:
+            return None, reasons or ["All candidate routes exhausted due to cooldown or filters"]
+
+        # Commit reservation if run_id / activation_id present
+        if reservation_key:
+            self.store.save_reservation(
+                reservation_key=reservation_key,
+                run_id=str(run_id),
+                activation_id=str(activation_id),
+                attempt_no=attempt_no,
+                route_id=chosen.route_id,
+                provider=chosen.provider,
+                requested_model=chosen.model,
+                executor=chosen.executor,
+                role=role,  # Strictly preserve role
+                policy_id=policy.policy_id,
+            )
+
+        resolution = RouteResolution(
+            route_id=chosen.route_id,
+            provider=chosen.provider,
+            requested_model=chosen.model,
+            executor=chosen.executor,
+            role=role,
+            policy_id=policy.policy_id,
+            policy_strategy=policy.strategy,
+            reservation_id=reservation_key,
+            attempt_no=attempt_no,
+            fallback_reasons=reasons,
+        )
+        return resolution, reasons
+
