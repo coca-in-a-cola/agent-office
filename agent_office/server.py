@@ -29,12 +29,14 @@ from .storage import (
     apply_workflow_projection,
     get_default_storage,
 )
+from .editor import EditorApiError, EditorService
 from .workflow.service import WorkflowApiError, WorkflowService
 
 logger = logging.getLogger("agent_office.server")
 
 MAX_JSON_BODY = 1024 * 1024
 WORKFLOW_PREFIX = "/api/workflow"
+EDITOR_PREFIX = "/api/editor"
 RUN_COMMANDS = ("pause", "resume", "cancel", "approve", "retry")
 MONITOR_TAIL_LINES = 100
 MONITOR_TAIL_MAX = 1000
@@ -417,11 +419,18 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
         static_dir: Optional[Union[str, Path]] = None,
         workflow: Optional[WorkflowService] = None,
         bridge: Optional[TaskBridgeReader] = None,
+        editor: Optional[EditorService] = None,
         **kwargs: Any,
     ) -> None:
         self.storage = storage
         self.workflow = workflow
         self.bridge = bridge
+        if editor is not None:
+            self.editor = editor
+        elif self.storage is not None and getattr(self.storage, "db_path", None):
+            self.editor = EditorService(self.storage.db_path)
+        else:
+            self.editor = None
         self.static_dir = Path(static_dir) if static_dir is not None else get_default_static_dir()
         super().__init__(*args, directory=str(self.static_dir), **kwargs)
 
@@ -460,6 +469,10 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
             self.handle_workflow("GET", parsed_path)
             return
 
+        if self.is_editor_path(parsed_path):
+            self.handle_editor("GET", parsed_path)
+            return
+
         # Route: Workstation Monitor and Task Bridge drill-down
         parts = [unquote(p) for p in parsed_path.split("/") if p]
         if len(parts) == 4 and parts[:2] == ["api", "agents"] and parts[3] == "monitor":
@@ -482,12 +495,19 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
         if self.is_workflow_path(parsed_path):
             self.handle_workflow("POST", parsed_path)
             return
+        if self.is_editor_path(parsed_path):
+            self.handle_editor("POST", parsed_path)
+            return
         self.send_json(HTTPStatus.NOT_FOUND, {"status": "error", "message": "not found"})
 
     # -- Process Studio workflow API ---------------------------------------
     @staticmethod
     def is_workflow_path(path: str) -> bool:
         return path == WORKFLOW_PREFIX or path.startswith(WORKFLOW_PREFIX + "/")
+
+    @staticmethod
+    def is_editor_path(path: str) -> bool:
+        return path == EDITOR_PREFIX or path.startswith(EDITOR_PREFIX + "/")
 
     def send_json(self, status: int, data: Any) -> None:
         payload = json.dumps(data, ensure_ascii=False).encode("utf-8")
@@ -552,6 +572,53 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
             self.send_json(exc.status, {"status": "error", "message": exc.message})
         except Exception as exc:  # fail closed: report, never fabricate state
             logger.exception("Workflow API error on %s %s", method, path)
+            self.send_json(HTTPStatus.INTERNAL_SERVER_ERROR,
+                           {"status": "error", "message": f"internal error: {exc}"})
+
+    def route_editor(self, method: str, path: str) -> tuple[int, Any]:
+        service = self.editor
+        if service is None:
+            raise EditorApiError(503, "editor service is not configured")
+        parts = [unquote(p) for p in path[len(EDITOR_PREFIX):].split("/") if p]
+        status = HTTPStatus.OK
+
+        if parts == ["drafts"] and method == "GET":
+            return status, service.list_drafts()
+        if len(parts) == 2 and parts[0] == "drafts":
+            draft_id = parts[1]
+            if method == "GET":
+                return status, service.get_draft(draft_id)
+            if method == "POST":
+                body = self.read_json_body()
+                return HTTPStatus.OK, service.save_draft(draft_id, body)
+        if parts == ["validate"] and method == "POST":
+            body = self.read_json_body()
+            return status, service.validate(body)
+        if parts == ["publish"] and method == "POST":
+            body = self.read_json_body()
+            return HTTPStatus.OK, service.publish(body)
+        if parts == ["published"] and method == "GET":
+            return status, service.list_published()
+        if len(parts) == 2 and parts[0] == "published" and method == "GET":
+            graph_id = parts[1]
+            query = parse_qs(self.path.split("?", 1)[1]) if "?" in self.path else {}
+            version_val = query.get("version", [None])[0]
+            version = int(version_val) if version_val is not None else None
+            return status, service.get_published(graph_id, version=version)
+
+        raise EditorApiError(404, f"no editor route {method} {path}")
+
+    def handle_editor(self, method: str, path: str) -> None:
+        try:
+            status, data = self.route_editor(method, path)
+            self.send_json(status, data)
+        except EditorApiError as exc:
+            payload = {"status": "error", "message": exc.message}
+            if exc.extra:
+                payload.update(exc.extra)
+            self.send_json(exc.status, payload)
+        except Exception as exc:
+            logger.exception("Editor API error on %s %s", method, path)
             self.send_json(HTTPStatus.INTERNAL_SERVER_ERROR,
                            {"status": "error", "message": f"internal error: {exc}"})
 
@@ -796,6 +863,7 @@ def create_server(
     static_dir: Optional[Union[str, Path]] = None,
     workflow: Optional[WorkflowService] = None,
     bridge: Optional[TaskBridgeReader] = None,
+    editor: Optional[EditorService] = None,
 ) -> ThreadingHTTPServer:
     """Instantiate and configure ThreadingHTTPServer with OfficeRequestHandler.
 
@@ -806,7 +874,7 @@ def create_server(
 
     def handler_factory(*args: Any, **kwargs: Any) -> OfficeRequestHandler:
         return OfficeRequestHandler(*args, storage=target_storage, static_dir=target_static,
-                                    workflow=workflow, bridge=bridge, **kwargs)
+                                    workflow=workflow, bridge=bridge, editor=editor, **kwargs)
 
     return ThreadingHTTPServer((host, port), handler_factory)
 
