@@ -72,7 +72,6 @@ export const EditorViewInner: React.FC<EditorViewProps> = ({
 
   // Selection & UI state
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [isCatalogOpen, setIsCatalogOpen] = useState<boolean>(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'info' | 'error'; text: string } | null>(null);
