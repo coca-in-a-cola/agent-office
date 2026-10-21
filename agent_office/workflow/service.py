@@ -26,6 +26,7 @@ from .engine import (
     WorkflowEngine,
 )
 from .release_workflow import build_release_workflow
+from .templates import get_all_templates
 from .storage import RepositoryError, WorkflowRepository
 
 logger = logging.getLogger("agent_office.workflow.service")
@@ -102,6 +103,11 @@ class WorkflowService:
         with self.repo.transaction():
             self.canonical_hash = self.repo.register_canonical_definition(
                 build_release_workflow(), clock())
+            self.template_hashes = {
+                name: (self.canonical_hash if name == "software-release" else
+                       self.repo.register_definition(definition, clock()))
+                for name, definition in get_all_templates().items()
+            }
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -137,6 +143,13 @@ class WorkflowService:
             self.repo.close()
 
     # -- definitions -----------------------------------------------------
+    def list_templates(self) -> list[dict[str, Any]]:
+        """Return registered, hash-pinned blueprints including node contracts."""
+        with self.lock:
+            return [dict(self._definition_json(self.repo.load_definition(digest)),
+                         template_id=name)
+                    for name, digest in self.template_hashes.items()]
+
     def list_definitions(self) -> dict[str, Any]:
         with self.lock:
             rows = self.repo.list_definitions()

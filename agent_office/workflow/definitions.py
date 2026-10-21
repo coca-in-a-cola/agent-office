@@ -81,6 +81,8 @@ class NodeDefinition:
     side_effecting: bool = False
     requires_approval: bool = False
     approval_scope: str = ""
+    input_scope: str = "task"
+    is_mandatory_publication: bool = False
 
     def __post_init__(self) -> None:
         if not self.name or self.name.startswith("@"):
@@ -95,6 +97,8 @@ class NodeDefinition:
             raise DefinitionError(f"{self.name}: attempts/iterations bounded to 2")
         if self.requires_approval and not self.approval_scope:
             raise DefinitionError(f"{self.name}: approval gate needs a scope")
+        if self.input_scope not in ("project", "task", "batch"):
+            raise DefinitionError(f"{self.name}: input_scope must be 'project', 'task', or 'batch'")
         for value in (self.allowed_executors, self.allowed_models, self.inputs,
                       self.expected_artifacts, self.required_fields,
                       self.completion_criteria, self.budget,
@@ -123,6 +127,8 @@ class NodeDefinition:
             "side_effecting": self.side_effecting,
             "requires_approval": self.requires_approval,
             "approval_scope": self.approval_scope,
+            "input_scope": self.input_scope,
+            "is_mandatory_publication": self.is_mandatory_publication,
         }
 
     @classmethod
@@ -147,6 +153,8 @@ class NodeDefinition:
             side_effecting=bool(data["side_effecting"]),
             requires_approval=bool(data["requires_approval"]),
             approval_scope=data["approval_scope"],
+            input_scope=data.get("input_scope", "task"),
+            is_mandatory_publication=bool(data.get("is_mandatory_publication", False)),
         )
 
 

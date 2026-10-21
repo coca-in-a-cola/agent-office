@@ -800,7 +800,9 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
         parts = [unquote(p) for p in path[len(WORKFLOW_PREFIX):].split("/") if p]
         handler: Optional[Callable[[], Any]] = None
         status = HTTPStatus.OK
-        if parts == ["definitions"] and method == "GET":
+        if parts == ["templates"] and method == "GET":
+            handler = service.list_templates
+        elif parts == ["definitions"] and method == "GET":
             handler = service.list_definitions
         elif len(parts) == 2 and parts[0] == "definitions" and method == "GET":
             handler = lambda: service.get_definition(parts[1])

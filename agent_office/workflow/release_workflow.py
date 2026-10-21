@@ -108,6 +108,8 @@ def build_release_workflow(version: int = 1) -> WorkflowDefinition:
             ),
             side_effecting=True, requires_approval=True,
             approval_scope="publish",
+            input_scope="project",
+            is_mandatory_publication=True,
         ),
         NodeDefinition(
             name=DELIVERY, role="owner_liaison",
