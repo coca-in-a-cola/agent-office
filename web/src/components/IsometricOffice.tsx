@@ -183,6 +183,23 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
   const [hoveredTileKey, setHoveredTileKey] = useState<string | null>(null);
   const [buildMode, setBuildMode] = useState<boolean>(false);
   const [buildTool, setBuildTool] = useState<'floor' | 'wall_n' | 'wall_w' | 'door' | 'corridor' | 'new_suite'>('floor');
+  const [customSkins, setCustomSkins] = useState<Record<string, any>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('agent_office_custom_skins') || '{}');
+    } catch {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    const handleSkinsUpdate = () => {
+      try {
+        setCustomSkins(JSON.parse(localStorage.getItem('agent_office_custom_skins') || '{}'));
+      } catch {}
+    };
+    window.addEventListener('skins-updated', handleSkinsUpdate);
+    return () => window.removeEventListener('skins-updated', handleSkinsUpdate);
+  }, []);
 
   const handleTileClick = (x: number, y: number) => {
     if (!buildMode) return;
@@ -450,6 +467,18 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
               <span>{tool.toUpperCase()}</span>
             </button>
           ))}
+          <button
+            type="button"
+            onClick={() => {
+              const targetAgent = agents[0]?.id || 'tyler';
+              onSelectAgent(targetAgent);
+            }}
+            className="px-2 py-0.5 rounded text-[10px] font-mono bg-purple-950/80 hover:bg-purple-900 text-purple-300 border border-purple-500/50 flex items-center gap-1 transition cursor-pointer"
+            title="Open Agent Inspector to customize character skin & limbs"
+          >
+            <Palette size={10} />
+            <span>SKINS</span>
+          </button>
           <button
             onClick={() =>
               setCampusGrid((g) =>
@@ -1590,7 +1619,7 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
                 {/* --- MODULAR CHARACTER SEATED AT WORKSTATION (WORKING VS SLEEPING) --- */}
                 <g transform="translate(0, -16)">
                   <ModularCharacter
-                    skin={getAgentSkin(id, conf.role)}
+                    skin={customSkins[id] || getAgentSkin(id, conf.role)}
                     pose={isWorking ? 'seated_work' : 'seated_sleep'}
                     scale={0.88}
                   />
