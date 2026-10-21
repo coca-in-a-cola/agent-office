@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Agent } from '../types';
 import { StatusBadge } from './StatusBadge';
 import { deskStatusColor } from './WorkflowAssignmentBadge';
@@ -17,6 +17,9 @@ import {
   GitBranch,
   User,
   X,
+  Zap,
+  Navigation,
+  Layers,
 } from 'lucide-react';
 
 interface IsometricOfficeProps {
@@ -30,70 +33,134 @@ interface IsometricOfficeProps {
 const POPOVER_W = 260;
 const POPOVER_H = 190;
 
-// Workstation position mapping on the isometric floor plane
-const WORKSTATION_CONFIG: Record<string, {
+export interface SuiteDefinition {
+  id: string;
   name: string;
+  suiteCode: string;
+  suiteTitle: string;
   role: string;
   gridX: number;
   gridY: number;
+  center: { x: number; y: number };
+  deskPos: { x: number; y: number };
+  rx: number;
+  ry: number;
+  wallHeight: number;
   icon: React.ElementType;
   accentColor: string;
-  deskType: 'executive' | 'art' | 'code' | 'ops' | 'qa' | 'web';
-}> = {
+  deskType: 'executive' | 'code' | 'art' | 'ops' | 'qa' | 'web';
+  floorTheme: 'mahogany' | 'dev-grid' | 'creative-bay' | 'server-noc' | 'qa-cleanroom' | 'staging-deck';
+}
+
+// 6 Dedicated Suites arranged in a high-tech corporate campus compound
+export const WORKSTATION_CONFIG: Record<string, SuiteDefinition> = {
   tyler: {
+    id: 'tyler',
     name: 'Tyler',
+    suiteCode: 'STE-01',
+    suiteTitle: 'Executive Suite',
     role: 'Managing Director',
-    gridX: 0,
-    gridY: -1,
+    gridX: -2.0,
+    gridY: -2.0,
+    center: { x: 0, y: -175 },
+    deskPos: { x: 0, y: -170 },
+    rx: 110,
+    ry: 55,
+    wallHeight: 52,
     icon: Crown,
     accentColor: '#f59e0b',
     deskType: 'executive',
+    floorTheme: 'mahogany',
   },
   coder: {
+    id: 'coder',
     name: 'Coder',
+    suiteCode: 'STE-02',
+    suiteTitle: 'Dev Den',
     role: 'Godot Dev',
-    gridX: -1.4,
-    gridY: 0.4,
+    gridX: -2.5,
+    gridY: 0.5,
+    center: { x: -270, y: -85 },
+    deskPos: { x: -270, y: -80 },
+    rx: 100,
+    ry: 50,
+    wallHeight: 50,
     icon: Terminal,
     accentColor: '#10b981',
     deskType: 'code',
+    floorTheme: 'dev-grid',
   },
   artist: {
+    id: 'artist',
     name: 'Artist',
-    role: 'Artist',
-    gridX: 1.4,
-    gridY: -0.4,
+    suiteCode: 'STE-03',
+    suiteTitle: 'Creative Bay',
+    role: 'Lead Artist',
+    gridX: 0.5,
+    gridY: -2.5,
+    center: { x: 270, y: -85 },
+    deskPos: { x: 270, y: -80 },
+    rx: 100,
+    ry: 50,
+    wallHeight: 50,
     icon: Palette,
     accentColor: '#ec4899',
     deskType: 'art',
+    floorTheme: 'creative-bay',
   },
   devops: {
+    id: 'devops',
     name: 'DevOps',
-    role: 'DevOps',
-    gridX: -0.7,
-    gridY: 1.6,
+    suiteCode: 'STE-04',
+    suiteTitle: 'Server NOC & Vault',
+    role: 'Site Reliability',
+    gridX: -0.5,
+    gridY: 2.5,
+    center: { x: -270, y: 95 },
+    deskPos: { x: -270, y: 100 },
+    rx: 100,
+    ry: 50,
+    wallHeight: 50,
     icon: Monitor,
     accentColor: '#3b82f6',
     deskType: 'ops',
+    floorTheme: 'server-noc',
   },
   qa: {
+    id: 'qa',
     name: 'QA',
-    role: 'QA',
-    gridX: 1.0,
-    gridY: 1.2,
+    suiteCode: 'STE-05',
+    suiteTitle: 'Testing Lab',
+    role: 'QA Engineer',
+    gridX: 2.5,
+    gridY: -0.5,
+    center: { x: 270, y: 95 },
+    deskPos: { x: 270, y: 100 },
+    rx: 100,
+    ry: 50,
+    wallHeight: 50,
     icon: ShieldCheck,
     accentColor: '#06b6d4',
     deskType: 'qa',
+    floorTheme: 'qa-cleanroom',
   },
-  // Server grid position [2, 0]: front-right corner of the floor.
   webdev: {
+    id: 'webdev',
     name: 'WebDev',
+    suiteCode: 'STE-06',
+    suiteTitle: 'Staging Deck',
     role: 'Web Engineer',
     gridX: 2.0,
-    gridY: 1.0,
+    gridY: 2.0,
+    center: { x: 0, y: 185 },
+    deskPos: { x: 0, y: 190 },
+    rx: 110,
+    ry: 55,
+    wallHeight: 52,
     icon: Globe,
     accentColor: '#0ea5e9',
     deskType: 'web',
+    floorTheme: 'staging-deck',
   },
 };
 
@@ -105,22 +172,17 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
 }) => {
   const [zoom, setZoom] = useState<number>(1);
   const [hoveredAgentId, setHoveredAgentId] = useState<string | null>(null);
-  // Desk whose workflow quick-preview popover is open.
   const [popoverId, setPopoverId] = useState<string | null>(null);
+  const [activePipelineOverride, setActivePipelineOverride] = useState<string | null>(null);
+  const [animationTick, setAnimationTick] = useState<number>(0);
 
-  // Convert isometric grid coordinates (gridX, gridY) to screen (X, Y)
-  // Standard 2:1 isometric projection:
-  // x_screen = (x - y) * TILE_WIDTH / 2
-  // y_screen = (x + y) * TILE_HEIGHT / 2
-  const TILE_W = 180;
-  const TILE_H = 90;
-
-  const toScreen = (gx: number, gy: number) => {
-    return {
-      x: (gx - gy) * (TILE_W / 2),
-      y: (gx + gy) * (TILE_H / 2),
-    };
-  };
+  // Periodic heartbeat for blinking lights & ambient runner transitions
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setAnimationTick((t) => (t + 1) % 1000);
+    }, 4000);
+    return () => clearInterval(timer);
+  }, []);
 
   const getAgentData = (key: string): Agent => {
     const found = agents.find((a) => a.id.toLowerCase() === key.toLowerCase());
@@ -133,6 +195,7 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
       current_model: 'unknown',
     };
   };
+
 
   // Active workflow desks open a quick preview; others open the agent inspector.
   const handleDeskClick = (id: string) => {
@@ -147,15 +210,102 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
   const popoverAgent = popoverId ? getAgentData(popoverId) : null;
   const popoverAssignment = popoverAgent?.workflow_assignment ?? null;
   const popoverPos = popoverId && WORKSTATION_CONFIG[popoverId]
-    ? toScreen(WORKSTATION_CONFIG[popoverId].gridX, WORKSTATION_CONFIG[popoverId].gridY)
+    ? WORKSTATION_CONFIG[popoverId].deskPos
     : null;
+
+  // Detect active task courier transition based on real workflow states
+  const activeCourierInfo = useMemo(() => {
+    if (activePipelineOverride) {
+      return activePipelineOverride;
+    }
+
+    // Check who is actively working or assigned
+    const workingAgents = agents.filter(
+      (a) => a.status === 'working' || !!a.workflow_assignment
+    );
+
+    if (workingAgents.length > 0) {
+      const active = workingAgents[0];
+      const id = active.id.toLowerCase();
+      if (id === 'coder') return 'coder-to-qa';
+      if (id === 'qa') return 'qa-to-devops';
+      if (id === 'artist') return 'artist-to-web';
+      if (id === 'devops') return 'devops-to-web';
+      if (id === 'webdev') return 'web-to-tyler';
+      if (id === 'tyler') return 'tyler-to-coder';
+    }
+
+    // Default cyclic ambient patrol between departments
+    const patrolStages = [
+      'tyler-to-coder',
+      'coder-to-devops',
+      'devops-to-web',
+      'web-to-qa',
+      'qa-to-artist',
+      'artist-to-tyler',
+    ];
+    return patrolStages[animationTick % patrolStages.length];
+  }, [agents, activePipelineOverride, animationTick]);
+
+  // Corridor runner path string for SVG motion
+  const courierPathData = useMemo(() => {
+    switch (activeCourierInfo) {
+      case 'coder-to-qa':
+        return 'M -270,-80 L -140,-70 L 0,5 L 140,80 L 270,100';
+      case 'qa-to-devops':
+        return 'M 270,100 L 140,80 L 0,5 L -140,80 L -270,100';
+      case 'artist-to-web':
+        return 'M 270,-80 L 140,-70 L 0,5 L 0,165';
+      case 'devops-to-web':
+        return 'M -270,100 L -140,80 L 0,5 L 0,165';
+      case 'web-to-tyler':
+        return 'M 0,165 L 0,5 L 0,-150';
+      case 'coder-to-devops':
+        return 'M -270,-80 L -270,10 L -270,100';
+      case 'qa-to-artist':
+        return 'M 270,100 L 270,10 L 270,-80';
+      case 'artist-to-tyler':
+        return 'M 270,-80 L 140,-70 L 0,5 L 0,-150';
+      case 'tyler-to-coder':
+      default:
+        return 'M 0,-150 L 0,5 L -140,-70 L -270,-80';
+    }
+  }, [activeCourierInfo]);
+
+  // Friendly label for the task courier HUD banner
+  const courierLabel = useMemo(() => {
+    switch (activeCourierInfo) {
+      case 'coder-to-qa':
+        return 'Coder ➔ QA (Test Build Review)';
+      case 'qa-to-devops':
+        return 'QA ➔ DevOps (Release Signoff)';
+      case 'artist-to-web':
+        return 'Artist ➔ WebDev (Vector Assets)';
+      case 'devops-to-web':
+        return 'DevOps ➔ WebDev (Deploy Staging)';
+      case 'web-to-tyler':
+        return 'WebDev ➔ Tyler (Sprint Demo)';
+      case 'coder-to-devops':
+        return 'Coder ➔ DevOps (Container CI)';
+      case 'qa-to-artist':
+        return 'QA ➔ Artist (Visual Inspection)';
+      case 'artist-to-tyler':
+        return 'Artist ➔ Tyler (Design System)';
+      case 'tyler-to-coder':
+      default:
+        return 'Tyler ➔ Coder (Task Roadmapping)';
+    }
+  }, [activeCourierInfo]);
 
   return (
     <div className="relative w-full h-full flex flex-col items-center justify-center bg-radial-gradient overflow-hidden select-none">
       {/* Top Floating Controls */}
-      <div className="absolute top-4 left-4 z-20 flex items-center gap-2 bg-slate-900/80 backdrop-blur-md px-3 py-1.5 rounded-lg border border-slate-700/60 shadow-lg text-xs text-slate-300">
-        <span className="font-semibold text-slate-200">Perspective:</span>
-        <span className="text-cyan-400">Isometric 30°</span>
+      <div className="absolute top-4 left-4 z-20 flex flex-wrap items-center gap-2 bg-slate-900/85 backdrop-blur-md px-3.5 py-1.5 rounded-lg border border-slate-700/60 shadow-xl text-xs text-slate-300">
+        <span className="font-semibold text-slate-200 flex items-center gap-1.5">
+          <Layers size={13} className="text-cyan-400" />
+          Compound:
+        </span>
+        <span className="text-cyan-300 font-mono text-[11px]">6-Suite Campus</span>
         <span className="text-slate-600">|</span>
         <button
           onClick={() => setZoom((z) => Math.min(z + 0.15, 1.6))}
@@ -178,81 +328,156 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
         >
           <RotateCcw size={14} />
         </button>
-        <span className="text-slate-400 pl-1">{Math.round(zoom * 100)}%</span>
+        <span className="text-slate-400 pl-1 font-mono">{Math.round(zoom * 100)}%</span>
+
+        <span className="text-slate-600 hidden sm:inline">|</span>
+        {/* Task Courier Pipeline indicator */}
+        <div className="hidden md:flex items-center gap-1.5 bg-slate-950/80 px-2 py-0.5 rounded border border-cyan-500/30 text-[10.5px]">
+          <Zap size={11} className="text-amber-400 animate-pulse" />
+          <span className="text-slate-400">Task Courier:</span>
+          <span className="text-cyan-300 font-medium font-mono">{courierLabel}</span>
+        </div>
       </div>
 
-      {/* Office Floor Legend */}
-      <div className="absolute bottom-4 left-4 z-20 flex flex-wrap items-center gap-2 bg-slate-900/85 backdrop-blur-md px-3 py-2 rounded-lg border border-slate-700/60 shadow-lg text-xs">
-        <span className="text-slate-400 font-medium">Workstations:</span>
+      {/* Office Floor Legend & Courier Pipeline Shortcuts */}
+      <div className="absolute bottom-4 left-4 z-20 flex flex-wrap items-center gap-1.5 max-w-[92vw] bg-slate-900/85 backdrop-blur-md px-3 py-2 rounded-lg border border-slate-700/60 shadow-xl text-xs">
+        <span className="text-slate-400 font-medium flex items-center gap-1 mr-1">
+          <Navigation size={12} className="text-cyan-400" />
+          Suites:
+        </span>
         {Object.entries(WORKSTATION_CONFIG).map(([id, conf]) => {
           const isSelected = selectedAgentId?.toLowerCase() === id;
+          const agent = getAgentData(id);
+          const isWorking = agent.status === 'working';
           return (
             <button
               key={id}
               onClick={() => onSelectAgent(id)}
-              className={`flex items-center gap-1.5 px-2 py-1 rounded transition border ${
+              className={`flex items-center gap-1.5 px-2 py-1 rounded transition border text-[11px] ${
                 isSelected
-                  ? 'bg-slate-800 border-cyan-400 text-white shadow-sm'
+                  ? 'bg-slate-800 border-cyan-400 text-white shadow-sm ring-1 ring-cyan-400/40'
                   : 'bg-slate-950/60 border-slate-800 text-slate-300 hover:border-slate-600'
               }`}
             >
               <span
-                className="w-2 h-2 rounded-full"
+                className={`w-2 h-2 rounded-full ${isWorking ? 'animate-ping' : ''}`}
                 style={{ backgroundColor: conf.accentColor }}
               />
+              <span className="font-mono text-[9px] text-slate-400">{conf.suiteCode}</span>
               <span className="font-medium">{conf.name}</span>
-              <span className="text-[10px] text-slate-400">({conf.role})</span>
             </button>
           );
         })}
+
+        {/* Quick Courier Dispatch button */}
+        <button
+          onClick={() => {
+            const pipelines = [
+              'coder-to-qa',
+              'artist-to-web',
+              'devops-to-web',
+              'web-to-tyler',
+              'tyler-to-coder',
+            ];
+            const nextIdx = (pipelines.indexOf(activeCourierInfo) + 1) % pipelines.length;
+            setActivePipelineOverride(pipelines[nextIdx]);
+          }}
+          className="ml-2 flex items-center gap-1 px-2 py-1 rounded bg-cyan-950/70 border border-cyan-500/40 text-cyan-300 hover:bg-cyan-900/60 text-[10.5px] font-mono transition"
+          title="Cycle task runner courier route"
+        >
+          <Zap size={10} className="text-amber-400" />
+          <span>Dispatch Courier</span>
+        </button>
       </div>
 
-      {/* Main Isometric SVG Canvas */}
-      <div className="w-full h-full flex items-center justify-center p-4">
+      {/* Main Isometric SVG Compound Canvas */}
+      <div className="w-full h-full flex items-center justify-center p-3">
         <svg
-          viewBox="-460 -260 920 560"
-          className="w-full h-full max-h-[88vh] transition-transform duration-300 ease-out"
+          viewBox="-540 -320 1080 620"
+          className="w-full h-full max-h-[90vh] transition-transform duration-300 ease-out"
           style={{ transform: `scale(${zoom})` }}
         >
           <defs>
-            {/* Grid Floor Pattern */}
-            <linearGradient id="floorGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#131b2e" />
-              <stop offset="50%" stopColor="#0f172a" />
-              <stop offset="100%" stopColor="#0a0f1d" />
+            {/* Background Radial Shading */}
+            <radialGradient id="campusGlow" cx="50%" cy="45%" r="60%">
+              <stop offset="0%" stopColor="#1e293b" stopOpacity="0.6" />
+              <stop offset="50%" stopColor="#0f172a" stopOpacity="0.4" />
+              <stop offset="100%" stopColor="#020617" stopOpacity="0" />
+            </radialGradient>
+
+            {/* Corridor Floor Patterns */}
+            <linearGradient id="corridorGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#1a2333" />
+              <stop offset="50%" stopColor="#111827" />
+              <stop offset="100%" stopColor="#0a0f18" />
             </linearGradient>
 
-            <linearGradient id="tileGlow" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.4" />
-              <stop offset="100%" stopColor="#818cf8" stopOpacity="0.4" />
+            {/* Custom Room Floor Textures */}
+            {/* Tyler: Dark Mahogany Planks */}
+            <linearGradient id="mahoganyGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#2c1409" />
+              <stop offset="50%" stopColor="#1b0c05" />
+              <stop offset="100%" stopColor="#0e0602" />
             </linearGradient>
 
-            {/* Desk Gradients */}
-            <linearGradient id="woodGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stopColor="#451a03" />
-              <stop offset="100%" stopColor="#291104" />
+            {/* Coder: Cyberpunk Dev Matrix Grid */}
+            <linearGradient id="coderFloorGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#061f17" />
+              <stop offset="50%" stopColor="#03140e" />
+              <stop offset="100%" stopColor="#010a07" />
             </linearGradient>
 
-            <linearGradient id="metalGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stopColor="#334155" />
-              <stop offset="100%" stopColor="#1e293b" />
+            {/* Artist: Creative Bay Studio Tile */}
+            <linearGradient id="artistFloorGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#291124" />
+              <stop offset="50%" stopColor="#190a16" />
+              <stop offset="100%" stopColor="#0d040c" />
             </linearGradient>
 
+            {/* DevOps: Server NOC Vault Grate */}
+            <linearGradient id="opsFloorGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#0f213d" />
+              <stop offset="50%" stopColor="#0a1526" />
+              <stop offset="100%" stopColor="#050a14" />
+            </linearGradient>
+
+            {/* QA: Testing Cleanroom Cyan Grid */}
+            <linearGradient id="qaFloorGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#082b36" />
+              <stop offset="50%" stopColor="#051b22" />
+              <stop offset="100%" stopColor="#020c10" />
+            </linearGradient>
+
+            {/* WebDev: Staging Deck Slate */}
+            <linearGradient id="webFloorGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#0a263d" />
+              <stop offset="50%" stopColor="#071827" />
+              <stop offset="100%" stopColor="#030c14" />
+            </linearGradient>
+
+            {/* Wall Partition Gradients */}
+            <linearGradient id="glassWallLeft" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#1e293b" stopOpacity="0.45" />
+              <stop offset="100%" stopColor="#0f172a" stopOpacity="0.75" />
+            </linearGradient>
+            <linearGradient id="glassWallRight" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#334155" stopOpacity="0.4" />
+              <stop offset="100%" stopColor="#1e293b" stopOpacity="0.7" />
+            </linearGradient>
+
+            {/* Screen Shaders */}
             <linearGradient id="screenCodeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
               <stop offset="0%" stopColor="#064e3b" />
               <stop offset="100%" stopColor="#022c22" />
             </linearGradient>
-
             <linearGradient id="screenArtGrad" x1="0%" y1="0%" x2="100%" y2="100%">
               <stop offset="0%" stopColor="#831843" />
               <stop offset="100%" stopColor="#4c0519" />
             </linearGradient>
-
             <linearGradient id="screenOpsGrad" x1="0%" y1="0%" x2="100%" y2="100%">
               <stop offset="0%" stopColor="#1e3a8a" />
               <stop offset="100%" stopColor="#0f172a" />
             </linearGradient>
-
             <linearGradient id="screenQaGrad" x1="0%" y1="0%" x2="100%" y2="100%">
               <stop offset="0%" stopColor="#155e75" />
               <stop offset="100%" stopColor="#083344" />
@@ -262,147 +487,830 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
               <stop offset="100%" stopColor="#1e1b4b" />
             </linearGradient>
 
-            {/* Drop Shadows */}
+            {/* Filters */}
             <filter id="deskShadow" x="-20%" y="-20%" width="140%" height="140%">
-              <feDropShadow dx="0" dy="8" stdDeviation="6" floodColor="#000000" floodOpacity="0.6" />
+              <feDropShadow dx="0" dy="6" stdDeviation="5" floodColor="#000000" floodOpacity="0.65" />
             </filter>
-
-            <filter id="glowLight" x="-20%" y="-20%" width="140%" height="140%">
+            <filter id="glowLight" x="-30%" y="-30%" width="160%" height="160%">
               <feGaussianBlur stdDeviation="4" result="blur" />
               <feComposite in="SourceGraphic" in2="blur" operator="over" />
             </filter>
           </defs>
 
-          {/* Isometric Office Floor Plane (click closes the popover) */}
-          <g id="office-floor" onClick={() => setPopoverId(null)}>
-            {/* Outer Room Slab */}
-            <polygon
-              points="0,-190 420,20 0,230 -420,20"
-              fill="url(#floorGrad)"
-              stroke="#1e293b"
-              strokeWidth="3"
-            />
-            {/* Floor Slab Thickness */}
-            <polygon points="420,20 420,38 0,248 0,230" fill="#0f172a" />
-            <polygon points="-420,20 -420,38 0,248 0,230" fill="#090d16" />
+          {/* Background Compound Ambient Glow */}
+          <ellipse cx="0" cy="5" rx="460" ry="240" fill="url(#campusGlow)" />
 
-            {/* Isometric Floor Grid Lines */}
-            {[-2, -1, 0, 1, 2].map((i) => {
-              const p1 = toScreen(i, -2.5);
-              const p2 = toScreen(i, 2.5);
-              return (
-                <line
-                  key={`gx-${i}`}
-                  x1={p1.x}
-                  y1={p1.y}
-                  x2={p2.x}
-                  y2={p2.y}
-                  stroke="#1e293b"
-                  strokeWidth="1.2"
-                  strokeDasharray="4 4"
-                  opacity="0.7"
-                />
-              );
-            })}
-            {[-2, -1, 0, 1, 2].map((i) => {
-              const p1 = toScreen(-2.5, i);
-              const p2 = toScreen(2.5, i);
-              return (
-                <line
-                  key={`gy-${i}`}
-                  x1={p1.x}
-                  y1={p1.y}
-                  x2={p2.x}
-                  y2={p2.y}
-                  stroke="#1e293b"
-                  strokeWidth="1.2"
-                  strokeDasharray="4 4"
-                  opacity="0.7"
-                />
-              );
-            })}
-
-            {/* Central Carpet / Rug Area */}
+          {/* ======================================================== */}
+          {/* 1. INTER-CABINET CORRIDOR NETWORK & PLAZA FOUNDATION     */}
+          {/* ======================================================== */}
+          <g id="corridor-network" onClick={() => setPopoverId(null)}>
+            {/* Central Atrium Plaza Diamond */}
             <polygon
-              points="0,-70 200,30 0,130 -200,30"
-              fill="#1e293b"
+              points="0,-48 95,5 0,58 -95,5"
+              fill="url(#corridorGrad)"
               stroke="#334155"
               strokeWidth="1.5"
-              opacity="0.4"
             />
+            {/* Plaza Slab 3D Bevel Edge */}
+            <polygon points="95,5 95,14 0,67 0,58" fill="#0c121e" />
+            <polygon points="-95,5 -95,14 0,67 0,58" fill="#070b13" />
+
+            {/* North Radial Corridor (Tyler) */}
             <polygon
-              points="0,-60 180,30 0,120 -180,30"
-              fill="none"
+              points="-22,-45 22,-45 22,-120 -22,-120"
+              fill="url(#corridorGrad)"
+              stroke="#1e293b"
+              strokeWidth="1.2"
+            />
+            {/* South Radial Corridor (WebDev) */}
+            <polygon
+              points="-22,50 22,50 22,130 -22,130"
+              fill="url(#corridorGrad)"
+              stroke="#1e293b"
+              strokeWidth="1.2"
+            />
+            {/* West Radial Corridor (Coder) */}
+            <polygon
+              points="-60,-32 -170,-98 -170,-72 -60,-4"
+              fill="url(#corridorGrad)"
+              stroke="#1e293b"
+              strokeWidth="1.2"
+            />
+            {/* East Radial Corridor (Artist) */}
+            <polygon
+              points="60,-32 170,-98 170,-72 60,-4"
+              fill="url(#corridorGrad)"
+              stroke="#1e293b"
+              strokeWidth="1.2"
+            />
+            {/* South-West Radial Corridor (DevOps) */}
+            <polygon
+              points="-60,14 -170,82 -170,108 -60,42"
+              fill="url(#corridorGrad)"
+              stroke="#1e293b"
+              strokeWidth="1.2"
+            />
+            {/* South-East Radial Corridor (QA) */}
+            <polygon
+              points="60,14 170,82 170,108 60,42"
+              fill="url(#corridorGrad)"
+              stroke="#1e293b"
+              strokeWidth="1.2"
+            />
+
+            {/* West Wing Gallery (Coder <-> DevOps corridor) */}
+            <polygon
+              points="-288,-35 -252,-35 -252,45 -288,45"
+              fill="url(#corridorGrad)"
+              stroke="#1e293b"
+              strokeWidth="1.2"
+            />
+            {/* East Wing Gallery (Artist <-> QA corridor) */}
+            <polygon
+              points="252,-35 288,-35 288,45 252,45"
+              fill="url(#corridorGrad)"
+              stroke="#1e293b"
+              strokeWidth="1.2"
+            />
+
+            {/* Central Plaza Medallion & Compass Rose */}
+            <polygon
+              points="0,-25 45,5 0,35 -45,5"
+              fill="#0f172a"
               stroke="#38bdf8"
               strokeWidth="1"
-              strokeDasharray="6 6"
-              opacity="0.3"
+              strokeDasharray="4 2"
+              opacity="0.6"
             />
+            <circle cx="0" cy="5" r="9" fill="#020617" stroke="#38bdf8" strokeWidth="1" />
+            <circle cx="0" cy="5" r="3.5" fill="#38bdf8" className="animate-pulse" />
 
-            {/* Rear Translucent Glass Walls */}
-            <polygon
-              points="0,-190 -420,20 -420,-60 0,-270"
-              fill="#0f172a"
-              fillOpacity="0.4"
-              stroke="#334155"
-              strokeWidth="2"
-            />
-            <polygon
-              points="0,-190 420,20 420,-60 0,-270"
-              fill="#1e293b"
-              fillOpacity="0.3"
-              stroke="#334155"
-              strokeWidth="2"
-            />
+            {/* Corridor Center Guidance Tracks (Laser Line for Courier) */}
+            <line x1="0" y1="-120" x2="0" y2="130" stroke="#0ea5e9" strokeWidth="1" strokeDasharray="6 4" opacity="0.45" />
+            <line x1="-170" y1="-85" x2="170" y2="95" stroke="#0ea5e9" strokeWidth="1" strokeDasharray="6 4" opacity="0.35" />
+            <line x1="170" y1="-85" x2="-170" y2="95" stroke="#0ea5e9" strokeWidth="1" strokeDasharray="6 4" opacity="0.35" />
+            <line x1="-270" y1="-35" x2="-270" y2="45" stroke="#0ea5e9" strokeWidth="1" strokeDasharray="4 3" opacity="0.4" />
+            <line x1="270" y1="-35" x2="270" y2="45" stroke="#0ea5e9" strokeWidth="1" strokeDasharray="4 3" opacity="0.4" />
 
-            {/* Decorative Architectural Accent Lines */}
-            <line x1="0" y1="-270" x2="0" y2="-190" stroke="#38bdf8" strokeWidth="2" opacity="0.6" />
-            <line x1="-420" y1="-60" x2="0" y2="-270" stroke="#38bdf8" strokeWidth="1.5" opacity="0.4" />
-            <line x1="420" y1="-60" x2="0" y2="-270" stroke="#818cf8" strokeWidth="1.5" opacity="0.4" />
-          </g>
-
-          {/* Office Props: Potted Plants & Server Racks in corners */}
-          <g id="office-props">
-            {/* Top Corner Executive Plan Board */}
-            <g transform="translate(0, -180)">
-              <polygon points="-40,-15 40,-15 40,35 -40,35" fill="#1e293b" stroke="#475569" strokeWidth="2" />
-              <polygon points="-36,-11 36,-11 36,31 -36,31" fill="#0f172a" />
-              <line x1="-30" y1="0" x2="30" y2="0" stroke="#38bdf8" strokeWidth="1.5" opacity="0.8" />
-              <line x1="-30" y1="12" x2="10" y2="12" stroke="#34d399" strokeWidth="1" opacity="0.7" />
-              <line x1="-30" y1="22" x2="20" y2="22" stroke="#fbbf24" strokeWidth="1" opacity="0.7" />
-              <text x="0" y="-3" fill="#94a3b8" fontSize="6" textAnchor="middle" fontWeight="bold">TASK ROADMAP</text>
-            </g>
-
-            {/* Left Corner Server Cabinet */}
-            <g transform="translate(-290, 70)">
-              {/* Server rack box */}
-              <polygon points="0,-60 30,-45 0,-30 -30,-45" fill="#334155" stroke="#475569" />
-              <polygon points="30,-45 30,20 0,35 0,-30" fill="#1e293b" stroke="#475569" />
-              <polygon points="-30,-45 -30,20 0,35 0,-30" fill="#0f172a" stroke="#475569" />
-              {/* Blinking LEDs on server */}
-              <circle cx="10" cy="-15" r="1.5" fill="#34d399" className="animate-pulse" />
-              <circle cx="18" cy="-11" r="1.5" fill="#38bdf8" className="animate-pulse" />
-              <circle cx="10" cy="5" r="1.5" fill="#34d399" />
-              <circle cx="18" cy="9" r="1.5" fill="#f43f5e" className="animate-ping" />
-            </g>
-
-            {/* Right Corner Potted Plant */}
-            <g transform="translate(300, 70)">
-              <polygon points="0,0 15,7 0,15 -15,7" fill="#451a03" />
-              <polygon points="15,7 15,22 0,30 0,15" fill="#291104" />
-              <polygon points="-15,7 -15,22 0,30 0,15" fill="#1c0a02" />
-              {/* Plant foliage */}
-              <circle cx="0" cy="-8" r="14" fill="#065f46" opacity="0.9" />
-              <circle cx="-6" cy="-16" r="11" fill="#047857" opacity="0.9" />
-              <circle cx="6" cy="-18" r="12" fill="#10b981" opacity="0.8" />
-              <circle cx="0" cy="-24" r="9" fill="#34d399" opacity="0.8" />
+            {/* Floor Directional Chevron Markings */}
+            <g opacity="0.5">
+              <path d="M -4,-80 L 0,-85 L 4,-80" fill="none" stroke="#38bdf8" strokeWidth="1.2" />
+              <path d="M -4,-60 L 0,-65 L 4,-60" fill="none" stroke="#38bdf8" strokeWidth="1.2" />
+              <path d="M -4,80 L 0,85 L 4,80" fill="none" stroke="#38bdf8" strokeWidth="1.2" />
+              <path d="M -4,100 L 0,105 L 4,100" fill="none" stroke="#38bdf8" strokeWidth="1.2" />
+              <path d="M -115,-80 L -120,-75 L -125,-80" fill="none" stroke="#10b981" strokeWidth="1.2" />
+              <path d="M 115,-80 L 120,-75 L 125,-80" fill="none" stroke="#ec4899" strokeWidth="1.2" />
+              <path d="M -115,85 L -120,90 L -125,85" fill="none" stroke="#3b82f6" strokeWidth="1.2" />
+              <path d="M 115,85 L 120,90 L 125,85" fill="none" stroke="#06b6d4" strokeWidth="1.2" />
             </g>
           </g>
 
-          {/* Interactive Workstations */}
+          {/* ======================================================== */}
+          {/* 2. THE 6 DEDICATED SUITES / ROOM GENERATION               */}
+          {/* ======================================================== */}
+
+          {/* SUITE 01 (North): TYLER - EXECUTIVE SUITE */}
+          <g id="suite-tyler" onClick={() => handleDeskClick('tyler')}>
+            {/* Room Diamond Floor */}
+            <polygon
+              points="0,-230 110,-175 0,-120 -110,-175"
+              fill="url(#mahoganyGrad)"
+              stroke="#78350f"
+              strokeWidth="2"
+            />
+            {/* Floor Slab 3D Edges */}
+            <polygon points="110,-175 110,-167 0,-112 0,-120" fill="#1e0c04" />
+            <polygon points="-110,-175 -110,-167 0,-112 0,-120" fill="#0f0502" />
+
+            {/* Mahogany Wood Plank Grooves */}
+            {[-1.2, -0.6, 0, 0.6, 1.2].map((idx) => (
+              <line
+                key={`plank-${idx}`}
+                x1={idx * 35}
+                y1={-175 + idx * 17.5 - 25}
+                x2={idx * 35}
+                y2={-175 + idx * 17.5 + 25}
+                stroke="#451a03"
+                strokeWidth="0.8"
+                opacity="0.4"
+              />
+            ))}
+
+            {/* Rear Left Wall */}
+            <polygon
+              points="-110,-175 -110,-225 0,-280 0,-230"
+              fill="url(#glassWallLeft)"
+              stroke="#475569"
+              strokeWidth="1.5"
+            />
+            {/* Rear Right Wall */}
+            <polygon
+              points="0,-230 0,-280 110,-225 110,-175"
+              fill="url(#glassWallRight)"
+              stroke="#475569"
+              strokeWidth="1.5"
+            />
+            {/* Glass Wall Translucent Highlights */}
+            <line x1="-110" y1="-225" x2="0" y2="-280" stroke="#f59e0b" strokeWidth="1.5" opacity="0.75" />
+            <line x1="0" y1="-280" x2="110" y2="-225" stroke="#f59e0b" strokeWidth="1.5" opacity="0.75" />
+            <line x1="0" y1="-280" x2="0" y2="-230" stroke="#38bdf8" strokeWidth="1.2" opacity="0.5" />
+            <line x1="-55" y1="-252" x2="-55" y2="-202" stroke="#475569" strokeWidth="1" strokeDasharray="2 2" opacity="0.4" />
+            <line x1="55" y1="-252" x2="55" y2="-202" stroke="#475569" strokeWidth="1" strokeDasharray="2 2" opacity="0.4" />
+
+            {/* Door Frame at South Front Corner */}
+            <g transform="translate(0, -120)">
+              <line x1="-20" y1="0" x2="-20" y2="-32" stroke="#f59e0b" strokeWidth="1.5" />
+              <line x1="20" y1="0" x2="20" y2="-32" stroke="#f59e0b" strokeWidth="1.5" />
+              <line x1="-20" y1="-32" x2="20" y2="-32" stroke="#f59e0b" strokeWidth="2" />
+              {/* Illuminated Suite Placard */}
+              <rect x="-24" y="-42" width="48" height="9" rx="2" fill="#0f172a" stroke="#f59e0b" strokeWidth="1" />
+              <text x="0" y="-36" fill="#fbbf24" fontSize="5.5" fontWeight="bold" textAnchor="middle" fontFamily="JetBrains Mono, monospace">
+                STE-01 · EXEC
+              </text>
+            </g>
+
+            {/* Strategic Whiteboard on Rear Left Wall */}
+            <g transform="translate(-50, -225)">
+              <polygon points="-28,-8 28,-22 28,16 -28,30" fill="#0f172a" stroke="#d97706" strokeWidth="1.2" />
+              <polygon points="-25,-5 25,-19 25,13 -25,27" fill="#1e293b" />
+              <line x1="-20" y1="3" x2="18" y2="-7" stroke="#38bdf8" strokeWidth="1.5" opacity="0.8" />
+              <line x1="-20" y1="11" x2="5" y2="4" stroke="#34d399" strokeWidth="1.2" opacity="0.8" />
+              <line x1="-20" y1="19" x2="12" y2="10" stroke="#fbbf24" strokeWidth="1.2" opacity="0.8" />
+              <text x="0" y="-10" fill="#94a3b8" fontSize="4.5" textAnchor="middle" fontWeight="bold" fontFamily="monospace">
+                Q4 STRATEGY ROADMAP
+              </text>
+            </g>
+
+            {/* Luxury Executive Carpet Rug */}
+            <polygon
+              points="0,-192 60,-162 0,-132 -60,-162"
+              fill="#1e1b4b"
+              stroke="#f59e0b"
+              strokeWidth="1.2"
+              strokeDasharray="4 2"
+              opacity="0.75"
+            />
+
+            {/* Brass Arc Floor Lamp in corner */}
+            <g transform="translate(65, -195)">
+              <ellipse cx="0" cy="5" rx="7" ry="3.5" fill="#451a03" stroke="#f59e0b" strokeWidth="0.8" />
+              <path d="M 0,5 Q 5,-25 -10,-32" fill="none" stroke="#f59e0b" strokeWidth="1.5" />
+              <polygon points="-14,-31 -6,-34 -10,-26" fill="#fef08a" />
+              {/* Subtle ambient light pool */}
+              <ellipse cx="-10" cy="-10" rx="14" ry="7" fill="#fef08a" opacity="0.12" />
+            </g>
+
+            {/* Credenza & Espresso Station in left corner */}
+            <g transform="translate(-75, -180)">
+              <polygon points="0,-12 18,-3 0,6 -18,-3" fill="#451a03" stroke="#78350f" strokeWidth="1" />
+              <polygon points="18,-3 18,8 0,17 0,6" fill="#1c0d02" />
+              <polygon points="-18,-3 -18,8 0,17 0,6" fill="#0f0701" />
+              {/* Coffee machine */}
+              <rect x="-5" y="-12" width="10" height="9" rx="1.5" fill="#334155" stroke="#f59e0b" strokeWidth="0.8" />
+              <circle cx="0" cy="-6" r="1.5" fill="#ef4444" className="animate-pulse" />
+            </g>
+          </g>
+
+          {/* SUITE 02 (West): CODER - DEV DEN */}
+          <g id="suite-coder" onClick={() => handleDeskClick('coder')}>
+            {/* Room Diamond Floor */}
+            <polygon
+              points="-270,-135 -170,-85 -270,-35 -370,-85"
+              fill="url(#coderFloorGrad)"
+              stroke="#059669"
+              strokeWidth="2"
+            />
+            {/* Floor Slab 3D Edges */}
+            <polygon points="-170,-85 -170,-77 -270,-27 -270,-35" fill="#041f17" />
+            <polygon points="-370,-85 -370,-77 -270,-27 -270,-35" fill="#020e0a" />
+
+            {/* Cyberpunk Circuit Traces on Floor */}
+            <path
+              d="M -350,-85 L -310,-65 L -290,-65 L -280,-60"
+              fill="none"
+              stroke="#10b981"
+              strokeWidth="1.2"
+              opacity="0.6"
+            />
+            <circle cx="-280" cy="-60" r="2" fill="#34d399" />
+            <path
+              d="M -310,-115 L -280,-100 L -250,-100"
+              fill="none"
+              stroke="#10b981"
+              strokeWidth="1"
+              opacity="0.4"
+            />
+
+            {/* Rear Left Wall */}
+            <polygon
+              points="-370,-85 -370,-135 -270,-185 -270,-135"
+              fill="url(#glassWallLeft)"
+              stroke="#334155"
+              strokeWidth="1.5"
+            />
+            {/* Rear Right Wall */}
+            <polygon
+              points="-270,-135 -270,-185 -170,-135 -170,-85"
+              fill="url(#glassWallRight)"
+              stroke="#334155"
+              strokeWidth="1.5"
+            />
+            <line x1="-370" y1="-135" x2="-270" y2="-185" stroke="#10b981" strokeWidth="1.5" opacity="0.75" />
+            <line x1="-270" y1="-185" x2="-170" y2="-135" stroke="#10b981" strokeWidth="1.5" opacity="0.75" />
+
+            {/* Door Frame facing East towards Corridor */}
+            <g transform="translate(-170, -85)">
+              <line x1="0" y1="-15" x2="0" y2="-45" stroke="#10b981" strokeWidth="1.5" />
+              <line x1="20" y1="-5" x2="20" y2="-35" stroke="#10b981" strokeWidth="1.5" />
+              <line x1="0" y1="-45" x2="20" y2="-35" stroke="#10b981" strokeWidth="2" />
+              <rect x="-6" y="-55" width="46" height="9" rx="2" fill="#0f172a" stroke="#10b981" strokeWidth="1" />
+              <text x="17" y="-49" fill="#34d399" fontSize="5.5" fontWeight="bold" textAnchor="middle" fontFamily="JetBrains Mono, monospace">
+                STE-02 · DEV
+              </text>
+            </g>
+
+            {/* CRT Wall Matrix Displays on Left Wall */}
+            <g transform="translate(-320, -145)">
+              <polygon points="-24,-5 20,-27 20,5 -24,27" fill="#022c22" stroke="#10b981" strokeWidth="1.2" />
+              <line x1="-18" y1="2" x2="14" y2="-14" stroke="#34d399" strokeWidth="1" />
+              <line x1="-18" y1="10" x2="10" y2="-4" stroke="#34d399" strokeWidth="1" />
+              <line x1="-18" y1="18" x2="5" y2="7" stroke="#34d399" strokeWidth="1" />
+              <text x="-4" y="-12" fill="#10b981" fontSize="4" fontFamily="monospace">
+                GODOT 4.4 :: OK
+              </text>
+            </g>
+
+            {/* Water-Cooled Server Tower on Floor */}
+            <g transform="translate(-340, -80)">
+              <polygon points="0,-24 14,-17 0,-10 -14,-17" fill="#1e293b" stroke="#10b981" strokeWidth="1" />
+              <polygon points="14,-17 14,8 0,15 0,-10" fill="#0f172a" />
+              <polygon points="-14,-17 -14,8 0,15 0,-10" fill="#090d16" />
+              {/* Glowing green coolant pipe */}
+              <line x1="0" y1="-8" x2="0" y2="10" stroke="#34d399" strokeWidth="2" className="animate-pulse" />
+              <circle cx="8" cy="-5" r="1.5" fill="#10b981" />
+              <circle cx="8" cy="2" r="1.5" fill="#34d399" className="animate-ping" />
+            </g>
+          </g>
+
+          {/* SUITE 03 (East): ARTIST - CREATIVE BAY */}
+          <g id="suite-artist" onClick={() => handleDeskClick('artist')}>
+            {/* Room Diamond Floor */}
+            <polygon
+              points="270,-135 370,-85 270,-35 170,-85"
+              fill="url(#artistFloorGrad)"
+              stroke="#db2777"
+              strokeWidth="2"
+            />
+            {/* Floor Slab 3D Edges */}
+            <polygon points="370,-85 370,-77 270,-27 270,-35" fill="#200619" />
+            <polygon points="170,-85 170,-77 270,-27 270,-35" fill="#0f020c" />
+
+            {/* Creative Pastel Studio Tiles Pattern */}
+            <polygon
+              points="270,-105 320,-80 270,-55 220,-80"
+              fill="#371b34"
+              stroke="#ec4899"
+              strokeWidth="1"
+              strokeDasharray="4 2"
+              opacity="0.4"
+            />
+
+            {/* Rear Left Wall */}
+            <polygon
+              points="170,-85 170,-135 270,-185 270,-135"
+              fill="url(#glassWallLeft)"
+              stroke="#334155"
+              strokeWidth="1.5"
+            />
+            {/* Rear Right Wall */}
+            <polygon
+              points="270,-135 270,-185 370,-135 370,-85"
+              fill="url(#glassWallRight)"
+              stroke="#334155"
+              strokeWidth="1.5"
+            />
+            <line x1="170" y1="-135" x2="270" y2="-185" stroke="#ec4899" strokeWidth="1.5" opacity="0.75" />
+            <line x1="270" y1="-185" x2="370" y2="-135" stroke="#ec4899" strokeWidth="1.5" opacity="0.75" />
+
+            {/* Door Frame facing West towards Corridor */}
+            <g transform="translate(170, -85)">
+              <line x1="-20" y1="-5" x2="-20" y2="-35" stroke="#ec4899" strokeWidth="1.5" />
+              <line x1="0" y1="-15" x2="0" y2="-45" stroke="#ec4899" strokeWidth="1.5" />
+              <line x1="-20" y1="-35" x2="0" y2="-45" stroke="#ec4899" strokeWidth="2" />
+              <rect x="-38" y="-55" width="46" height="9" rx="2" fill="#0f172a" stroke="#ec4899" strokeWidth="1" />
+              <text x="-15" y="-49" fill="#f472b6" fontSize="5.5" fontWeight="bold" textAnchor="middle" fontFamily="JetBrains Mono, monospace">
+                STE-03 · ART
+              </text>
+            </g>
+
+            {/* Drafting Easel with Vector Art Display */}
+            <g transform="translate(325, -95)">
+              {/* Tripod wooden legs */}
+              <line x1="0" y1="-30" x2="-14" y2="15" stroke="#78350f" strokeWidth="1.8" />
+              <line x1="0" y1="-30" x2="14" y2="15" stroke="#78350f" strokeWidth="1.8" />
+              <line x1="0" y1="-30" x2="0" y2="18" stroke="#451a03" strokeWidth="1.5" />
+              {/* Canvas on Easel */}
+              <polygon points="-16,-22 16,-22 14,4 -18,4" fill="#f8fafc" stroke="#ec4899" strokeWidth="1.2" />
+              {/* Vibrant abstract illustration */}
+              <circle cx="-4" cy="-9" r="6" fill="#ec4899" opacity="0.8" />
+              <polygon points="2,-14 10,-4 0,-4" fill="#3b82f6" opacity="0.75" />
+              <line x1="-12" y1="0" x2="10" y2="0" stroke="#f59e0b" strokeWidth="1.5" />
+            </g>
+
+            {/* Color Swatch Palette on Right Wall */}
+            <g transform="translate(315, -145)">
+              <polygon points="-18,-15 18,-33 18,-7 -18,11" fill="#1e293b" stroke="#ec4899" strokeWidth="1" />
+              <circle cx="-8" cy="-5" r="2.5" fill="#f43f5e" />
+              <circle cx="0" cy="-9" r="2.5" fill="#ec4899" />
+              <circle cx="8" cy="-13" r="2.5" fill="#a855f7" />
+              <circle cx="-8" cy="2" r="2.5" fill="#3b82f6" />
+              <circle cx="0" cy="-2" r="2.5" fill="#10b981" />
+              <circle cx="8" cy="-6" r="2.5" fill="#f59e0b" />
+            </g>
+          </g>
+
+          {/* SUITE 04 (South-West): DEVOPS - SERVER NOC & VAULT */}
+          <g id="suite-devops" onClick={() => handleDeskClick('devops')}>
+            {/* Room Diamond Floor */}
+            <polygon
+              points="-270,45 -170,95 -270,145 -370,95"
+              fill="url(#opsFloorGrad)"
+              stroke="#2563eb"
+              strokeWidth="2"
+            />
+            {/* Floor Slab 3D Edges */}
+            <polygon points="-170,95 -170,103 -270,153 -270,145" fill="#061226" />
+            <polygon points="-370,95 -370,103 -270,153 -270,145" fill="#030914" />
+
+            {/* Cooling Floor Grates (Perforated metal grilles) */}
+            {[-2, -1, 0, 1, 2].map((gIdx) => (
+              <g key={`grate-${gIdx}`} opacity="0.45">
+                <line
+                  x1={-270 + gIdx * 16 - 20}
+                  y1={95 + gIdx * 8 - 10}
+                  x2={-270 + gIdx * 16 + 20}
+                  y2={95 + gIdx * 8 + 10}
+                  stroke="#38bdf8"
+                  strokeWidth="1.2"
+                  strokeDasharray="2 2"
+                />
+              </g>
+            ))}
+
+            {/* Rear Left Wall */}
+            <polygon
+              points="-370,95 -370,45 -270,-5 -270,45"
+              fill="url(#glassWallLeft)"
+              stroke="#334155"
+              strokeWidth="1.5"
+            />
+            {/* Rear Right Wall */}
+            <polygon
+              points="-270,45 -270,-5 -170,45 -170,95"
+              fill="url(#glassWallRight)"
+              stroke="#334155"
+              strokeWidth="1.5"
+            />
+            <line x1="-370" y1="45" x2="-270" y2="-5" stroke="#3b82f6" strokeWidth="1.5" opacity="0.75" />
+            <line x1="-270" y1="-5" x2="-170" y2="45" stroke="#3b82f6" strokeWidth="1.5" opacity="0.75" />
+
+            {/* Door Frame facing East towards Corridor */}
+            <g transform="translate(-170, 95)">
+              <line x1="0" y1="-15" x2="0" y2="-45" stroke="#3b82f6" strokeWidth="1.5" />
+              <line x1="20" y1="-5" x2="20" y2="-35" stroke="#3b82f6" strokeWidth="1.5" />
+              <line x1="0" y1="-45" x2="20" y2="-35" stroke="#3b82f6" strokeWidth="2" />
+              <rect x="-6" y="-55" width="46" height="9" rx="2" fill="#0f172a" stroke="#3b82f6" strokeWidth="1" />
+              <text x="17" y="-49" fill="#60a5fa" fontSize="5.5" fontWeight="bold" textAnchor="middle" fontFamily="JetBrains Mono, monospace">
+                STE-04 · NOC
+              </text>
+            </g>
+
+            {/* Blade Server Racks with Blinking LEDs */}
+            <g transform="translate(-325, 65)">
+              {/* Rack 1 */}
+              <polygon points="0,-45 22,-34 0,-23 -22,-34" fill="#334155" stroke="#3b82f6" strokeWidth="1" />
+              <polygon points="22,-34 22,12 0,23 0,-23" fill="#1e293b" />
+              <polygon points="-22,-34 -22,12 0,23 0,-23" fill="#0f172a" />
+              {/* Server Blade Slots & LEDs */}
+              {[ -18, -8, 2, 12 ].map((slotY, i) => (
+                <g key={`slot-${i}`}>
+                  <line x1="4" y1={slotY} x2="18" y2={slotY - 7} stroke="#475569" strokeWidth="1.2" />
+                  <circle cx="8" cy={slotY - 1} r="1.2" fill={i % 2 === 0 ? '#34d399' : '#38bdf8'} className="animate-pulse" />
+                  <circle cx="14" cy={slotY - 4} r="1.2" fill={i === 2 ? '#f43f5e' : '#34d399'} />
+                </g>
+              ))}
+              {/* Blue Rotating Beacon on top of Rack */}
+              <circle cx="0" cy="-34" r="3" fill="#38bdf8" className="animate-ping" opacity="0.85" />
+              <circle cx="0" cy="-34" r="2.5" fill="#2563eb" />
+            </g>
+
+            {/* Telemetry Status Monitor on Rear Wall */}
+            <g transform="translate(-240, 20)">
+              <polygon points="-20,-5 20,-25 20,5 -20,25" fill="#0f172a" stroke="#3b82f6" strokeWidth="1" />
+              <text x="0" y="-8" fill="#60a5fa" fontSize="4.5" textAnchor="middle" fontFamily="monospace">
+                UPTIME: 99.99%
+              </text>
+              <line x1="-14" y1="2" x2="14" y2="-12" stroke="#38bdf8" strokeWidth="1.2" />
+            </g>
+          </g>
+
+          {/* SUITE 05 (South-East): QA - TESTING LAB */}
+          <g id="suite-qa" onClick={() => handleDeskClick('qa')}>
+            {/* Room Diamond Floor */}
+            <polygon
+              points="270,45 370,95 270,145 170,95"
+              fill="url(#qaFloorGrad)"
+              stroke="#0891b2"
+              strokeWidth="2"
+            />
+            {/* Floor Slab 3D Edges */}
+            <polygon points="370,95 370,103 270,153 270,145" fill="#04181f" />
+            <polygon points="170,95 170,103 270,153 270,145" fill="#020d12" />
+
+            {/* Cleanroom Diagnostic Grid Crosshairs */}
+            <g opacity="0.4">
+              <line x1="270" y1="65" x2="270" y2="125" stroke="#06b6d4" strokeWidth="1" strokeDasharray="3 3" />
+              <line x1="220" y1="95" x2="320" y2="95" stroke="#06b6d4" strokeWidth="1" strokeDasharray="3 3" />
+              <circle cx="270" cy="95" r="15" fill="none" stroke="#06b6d4" strokeWidth="0.8" strokeDasharray="2 2" />
+            </g>
+
+            {/* Rear Left Wall */}
+            <polygon
+              points="170,95 170,45 270,-5 270,45"
+              fill="url(#glassWallLeft)"
+              stroke="#334155"
+              strokeWidth="1.5"
+            />
+            {/* Rear Right Wall */}
+            <polygon
+              points="270,45 270,-5 370,45 370,95"
+              fill="url(#glassWallRight)"
+              stroke="#334155"
+              strokeWidth="1.5"
+            />
+            <line x1="170" y1="45" x2="270" y2="-5" stroke="#06b6d4" strokeWidth="1.5" opacity="0.75" />
+            <line x1="270" y1="-5" x2="370" y2="45" stroke="#06b6d4" strokeWidth="1.5" opacity="0.75" />
+
+            {/* Door Frame facing West towards Corridor */}
+            <g transform="translate(170, 95)">
+              <line x1="-20" y1="-5" x2="-20" y2="-35" stroke="#06b6d4" strokeWidth="1.5" />
+              <line x1="0" y1="-15" x2="0" y2="-45" stroke="#06b6d4" strokeWidth="1.5" />
+              <line x1="-20" y1="-35" x2="0" y2="-45" stroke="#06b6d4" strokeWidth="2" />
+              <rect x="-38" y="-55" width="46" height="9" rx="2" fill="#0f172a" stroke="#06b6d4" strokeWidth="1" />
+              <text x="-15" y="-49" fill="#22d3ee" fontSize="5.5" fontWeight="bold" textAnchor="middle" fontFamily="JetBrains Mono, monospace">
+                STE-05 · LAB
+              </text>
+            </g>
+
+            {/* Oscilloscope Bench with Sine Wave Display */}
+            <g transform="translate(325, 75)">
+              <polygon points="0,-18 20,-9 0,0 -20,-9" fill="#1e293b" stroke="#06b6d4" strokeWidth="1" />
+              <polygon points="20,-9 20,10 0,19 0,0" fill="#0f172a" />
+              <polygon points="-20,-9 -20,10 0,19 0,0" fill="#090d16" />
+              {/* Cathode Screen */}
+              <polygon points="-16,-7 -2,-14 -2,-2 -16,5" fill="#083344" stroke="#06b6d4" strokeWidth="1" />
+              {/* Green Sine Wave */}
+              <path d="M -14,-1 Q -11,-7 -9,-2 T -4,-4" fill="none" stroke="#34d399" strokeWidth="1.2" className="animate-pulse" />
+              {/* Control Dials */}
+              <circle cx="6" cy="-2" r="1.5" fill="#94a3b8" />
+              <circle cx="12" cy="-5" r="1.5" fill="#94a3b8" />
+            </g>
+
+            {/* Bug Tracker Severity Checklist on Wall */}
+            <g transform="translate(240, 20)">
+              <polygon points="-20,-25 20,-5 20,25 -20,5" fill="#0f172a" stroke="#06b6d4" strokeWidth="1" />
+              <text x="0" y="-8" fill="#22d3ee" fontSize="4.5" textAnchor="middle" fontFamily="monospace">
+                TEST RUNS: 100%
+              </text>
+              <circle cx="-10" cy="2" r="1.5" fill="#34d399" />
+              <circle cx="-2" cy="6" r="1.5" fill="#34d399" />
+              <circle cx="6" cy="10" r="1.5" fill="#38bdf8" />
+            </g>
+          </g>
+
+          {/* SUITE 06 (South): WEBDEV - STAGING DECK */}
+          <g id="suite-webdev" onClick={() => handleDeskClick('webdev')}>
+            {/* Room Diamond Floor */}
+            <polygon
+              points="0,130 110,185 0,240 -110,185"
+              fill="url(#webFloorGrad)"
+              stroke="#0284c7"
+              strokeWidth="2"
+            />
+            {/* Floor Slab 3D Edges */}
+            <polygon points="110,185 110,193 0,248 0,240" fill="#061826" />
+            <polygon points="-110,185 -110,193 0,248 0,240" fill="#030c14" />
+
+            {/* Viewport Alignment Grid Marks on Floor */}
+            <polygon
+              points="0,150 75,187 0,224 -75,187"
+              fill="none"
+              stroke="#0ea5e9"
+              strokeWidth="1"
+              strokeDasharray="4 2"
+              opacity="0.35"
+            />
+            <text x="0" y="165" fill="#0ea5e9" fontSize="5" textAnchor="middle" fontFamily="JetBrains Mono, monospace" opacity="0.6">
+              1920 × 1080 STAGING VIEWPORT
+            </text>
+
+            {/* Glass Balustrade Dividers at Entrance */}
+            <line x1="-110" y1="185" x2="-25" y2="142" stroke="#0ea5e9" strokeWidth="2" opacity="0.65" />
+            <line x1="25" y1="142" x2="110" y2="185" stroke="#0ea5e9" strokeWidth="2" opacity="0.65" />
+
+            {/* Glass partition posts */}
+            {[-100, -70, -40, 40, 70, 100].map((px) => {
+              const py = 185 - (Math.abs(px) - 25) * 0.5;
+              return (
+                <line
+                  key={`balustrade-${px}`}
+                  x1={px}
+                  y1={py}
+                  x2={px}
+                  y2={py - 14}
+                  stroke="#38bdf8"
+                  strokeWidth="1.2"
+                  opacity="0.7"
+                />
+              );
+            })}
+
+            {/* Suite Door Entrance Placard at North Corner */}
+            <g transform="translate(0, 130)">
+              <rect x="-24" y="-12" width="48" height="9" rx="2" fill="#0f172a" stroke="#0ea5e9" strokeWidth="1" />
+              <text x="0" y="-6" fill="#38bdf8" fontSize="5.5" fontWeight="bold" textAnchor="middle" fontFamily="JetBrains Mono, monospace">
+                STE-06 · STAGING
+              </text>
+            </g>
+
+            {/* Multi-Device Matrix Test Rack (Mobile + Tablet stand) */}
+            <g transform="translate(-65, 175)">
+              {/* Brushed aluminum stand */}
+              <polygon points="0,-12 16,-4 0,4 -16,-4" fill="#334155" stroke="#64748b" strokeWidth="1" />
+              <polygon points="16,-4 16,6 0,14 0,4" fill="#1e293b" />
+              <polygon points="-16,-4 -16,6 0,14 0,4" fill="#0f172a" />
+              {/* Tablet screen */}
+              <rect x="-12" y="-22" width="24" height="15" rx="1.5" fill="#0f172a" stroke="#38bdf8" strokeWidth="1" />
+              <rect x="-10" y="-20" width="20" height="11" fill="#0284c7" opacity="0.6" />
+              {/* Phone screen mounted on side */}
+              <rect x="14" y="-16" width="7" height="13" rx="1" fill="#0f172a" stroke="#38bdf8" strokeWidth="0.8" />
+              <circle cx="17.5" cy="-5" r="0.6" fill="#38bdf8" />
+            </g>
+
+            {/* Staging Status Beacon Lamp */}
+            <g transform="translate(65, 175)">
+              <ellipse cx="0" cy="5" rx="5" ry="2.5" fill="#1e293b" stroke="#0ea5e9" strokeWidth="0.8" />
+              <line x1="0" y1="5" x2="0" y2="-20" stroke="#64748b" strokeWidth="1.5" />
+              <circle cx="0" cy="-22" r="3.5" fill="#10b981" className="animate-pulse" />
+              <circle cx="0" cy="-22" r="2" fill="#34d399" />
+            </g>
+          </g>
+
+          {/* ======================================================== */}
+          {/* 3. CORRIDOR ENVIRONMENTAL PROPS & CAMPUS FURNITURE       */}
+          {/* ======================================================== */}
+          <g id="corridor-props">
+            {/* Vending Machine in West Wing Gallery Alcove */}
+            <g transform="translate(-270, 5)">
+              {/* Shadow */}
+              <ellipse cx="0" cy="14" rx="16" ry="7" fill="#000000" opacity="0.5" />
+              {/* Machine Cabinet */}
+              <polygon points="0,-32 16,-23 0,-14 -16,-23" fill="#334155" stroke="#475569" strokeWidth="1" />
+              <polygon points="16,-23 16,10 0,19 0,-14" fill="#1e293b" stroke="#334155" strokeWidth="1" />
+              <polygon points="-16,-23 -16,10 0,19 0,-14" fill="#0f172a" stroke="#334155" strokeWidth="1" />
+              {/* Neon Header "SNACK" */}
+              <polygon points="-14,-21 0,-13 0,-7 -14,-15" fill="#f43f5e" />
+              {/* Glass Display Front showing soda cans */}
+              <polygon points="-14,-13 0,-5 0,11 -14,3" fill="#020617" stroke="#38bdf8" strokeWidth="0.8" />
+              <circle cx="-10" cy="-5" r="1.4" fill="#ef4444" />
+              <circle cx="-5" cy="-2" r="1.4" fill="#3b82f6" />
+              <circle cx="-10" cy="0" r="1.4" fill="#10b981" />
+              <circle cx="-5" cy="3" r="1.4" fill="#f59e0b" />
+              {/* Keypad & Coin Slot */}
+              <rect x="4" y="-8" width="6" height="4" fill="#020617" stroke="#38bdf8" strokeWidth="0.5" />
+              <line x1="7" y1="2" x2="7" y2="7" stroke="#38bdf8" strokeWidth="1" />
+            </g>
+
+            {/* Water Cooler in East Wing Gallery Alcove */}
+            <g transform="translate(270, 5)">
+              {/* Shadow */}
+              <ellipse cx="0" cy="14" rx="14" ry="6" fill="#000000" opacity="0.45" />
+              {/* Dispenser Base Cabinet */}
+              <polygon points="0,-12 12,-5 0,2 -12,-5" fill="#e2e8f0" stroke="#94a3b8" strokeWidth="0.8" />
+              <polygon points="12,-5 12,12 0,19 0,2" fill="#cbd5e1" />
+              <polygon points="-12,-5 -12,12 0,19 0,2" fill="#94a3b8" />
+              {/* Inverted Translucent Water Bottle on Top */}
+              <polygon points="0,-28 8,-23 0,-18 -8,-23" fill="#38bdf8" opacity="0.85" />
+              <polygon points="8,-23 8,-14 0,-9 0,-18" fill="#0284c7" opacity="0.8" />
+              <polygon points="-8,-23 -8,-14 0,-9 0,-18" fill="#0369a1" opacity="0.8" />
+              {/* Air bubble in water */}
+              <circle cx="-2" cy="-21" r="1" fill="#ffffff" opacity="0.75" />
+              {/* Spigots (Cold Blue & Hot Red) */}
+              <circle cx="-3" cy="5" r="1.2" fill="#3b82f6" />
+              <circle cx="3" cy="8" r="1.2" fill="#ef4444" />
+            </g>
+
+            {/* Industrial Floor Cable Conduits (tube.mjs style running from NOC to Coder and WebDev) */}
+            <g id="cable-channels" opacity="0.8">
+              {/* Conduit from DevOps to Coder along West Corridor */}
+              <path
+                d="M -260,90 Q -250,5 -260,-80"
+                fill="none"
+                stroke="#1e293b"
+                strokeWidth="6"
+                strokeLinecap="round"
+              />
+              <path
+                d="M -260,90 Q -250,5 -260,-80"
+                fill="none"
+                stroke="#f59e0b"
+                strokeWidth="2"
+                strokeDasharray="4 6"
+              />
+              <path
+                d="M -258,90 Q -248,5 -258,-80"
+                fill="none"
+                stroke="#06b6d4"
+                strokeWidth="1.5"
+              />
+
+              {/* Conduit from Central Plaza into WebDev */}
+              <path
+                d="M -10,40 L -10,135"
+                fill="none"
+                stroke="#1e293b"
+                strokeWidth="5"
+              />
+              <path
+                d="M -10,40 L -10,135"
+                fill="none"
+                stroke="#ec4899"
+                strokeWidth="1.5"
+              />
+
+              {/* Clamps holding conduits to the floor */}
+              <rect x="-263" y="-30" width="6" height="3" fill="#64748b" rx="1" />
+              <rect x="-263" y="15" width="6" height="3" fill="#64748b" rx="1" />
+              <rect x="-13" y="80" width="6" height="3" fill="#64748b" rx="1" />
+            </g>
+
+            {/* Architectural Potted Ficus Plants placed around Corridor Junctions */}
+            {[
+              { x: -85, y: -55 },
+              { x: 85, y: -55 },
+              { x: -85, y: 55 },
+              { x: 85, y: 55 },
+            ].map((p, idx) => (
+              <g key={`ficus-${idx}`} transform={`translate(${p.x}, ${p.y})`}>
+                {/* Shadow */}
+                <ellipse cx="0" cy="12" rx="12" ry="6" fill="#000000" opacity="0.4" />
+                {/* Planter pot */}
+                <polygon points="0,0 12,6 0,12 -12,6" fill="#475569" stroke="#334155" strokeWidth="1" />
+                <polygon points="12,6 12,15 0,21 0,12" fill="#1e293b" />
+                <polygon points="-12,6 -12,15 0,21 0,12" fill="#0f172a" />
+                {/* Lush layered ficus leaves */}
+                <circle cx="0" cy="-6" r="10" fill="#065f46" opacity="0.9" />
+                <circle cx="-5" cy="-12" r="8" fill="#047857" opacity="0.9" />
+                <circle cx="5" cy="-14" r="9" fill="#10b981" opacity="0.85" />
+                <circle cx="0" cy="-20" r="7" fill="#34d399" opacity="0.8" />
+              </g>
+            ))}
+
+            {/* Central Atrium Wayfinding Information Kiosk */}
+            <g transform="translate(0, -5)">
+              <polygon points="0,-16 10,-10 0,-4 -10,-10" fill="#38bdf8" opacity="0.6" />
+              <polygon points="10,-10 10,6 0,12 0,-4" fill="#0f172a" stroke="#38bdf8" strokeWidth="0.8" />
+              <polygon points="-10,-10 -10,6 0,12 0,-4" fill="#020617" stroke="#38bdf8" strokeWidth="0.8" />
+              {/* Holographic Suite Direction Arrows */}
+              <text x="0" y="2" fill="#38bdf8" fontSize="4.5" textAnchor="middle" fontFamily="monospace">
+                CAMPUS HUB
+              </text>
+            </g>
+          </g>
+
+          {/* ======================================================== */}
+          {/* 4. INTER-CABINET TASK RUNNER COURIER & DATA PACKETS      */}
+          {/* ======================================================== */}
+          <g id="task-courier-system">
+            {/* SVG Motion Path definition for Task Courier */}
+            <path
+              id="courierTrack"
+              d={courierPathData}
+              fill="none"
+              stroke="none"
+            />
+
+            {/* Courier Automaton moving along the track */}
+            <g className="cursor-pointer">
+              <animateMotion
+                dur="6s"
+                repeatCount="indefinite"
+                rotate="auto"
+              >
+                <mpath href="#courierTrack" />
+              </animateMotion>
+
+              {/* Shadow under courier */}
+              <ellipse cx="0" cy="5" rx="10" ry="5" fill="#000000" opacity="0.5" />
+
+              {/* Articulated Runner Drone / Courier */}
+              <g transform="translate(0, -6)">
+                {/* Speed particle trail */}
+                <circle cx="-12" cy="0" r="2.5" fill="#38bdf8" opacity="0.3" />
+                <circle cx="-20" cy="0" r="1.5" fill="#38bdf8" opacity="0.15" />
+
+                {/* Courier Chassis */}
+                <polygon points="0,-12 9,-5 0,2 -9,-5" fill="#38bdf8" stroke="#0284c7" strokeWidth="1" />
+                <polygon points="9,-5 9,4 0,11 0,2" fill="#0f172a" />
+                <polygon points="-9,-5 -9,4 0,11 0,2" fill="#020617" />
+
+                {/* Glowing Task Capsule / Briefcase */}
+                <rect x="-5" y="-8" width="10" height="7" rx="1.5" fill="#f59e0b" stroke="#fbbf24" strokeWidth="0.8" className="animate-pulse" />
+                <line x1="-3" y1="-5" x2="3" y2="-5" stroke="#ffffff" strokeWidth="0.8" />
+
+                {/* Optical Eye / Sensor Visor */}
+                <circle cx="6" cy="-2" r="1.5" fill="#38bdf8" />
+
+                {/* Floating Courier Role Badge */}
+                <g transform="translate(0, -22)">
+                  <rect x="-30" y="-8" width="60" height="13" rx="6.5" fill="#0f172a" stroke="#38bdf8" strokeWidth="1" />
+                  <text x="0" y="1" fill="#38bdf8" fontSize="6.5" fontWeight="bold" textAnchor="middle" fontFamily="JetBrains Mono, monospace">
+                    ⚡ TASK COURIER
+                  </text>
+                </g>
+              </g>
+            </g>
+
+            {/* Glowing High-Speed Data Pulses traveling continuously on corridor lines */}
+            <circle r="3.5" fill="#38bdf8" filter="url(#glowLight)">
+              <animateMotion
+                dur="4s"
+                repeatCount="indefinite"
+                path="M -270,-80 L 0,5 L 270,100"
+              />
+            </circle>
+            <circle r="3.5" fill="#ec4899" filter="url(#glowLight)">
+              <animateMotion
+                dur="4.5s"
+                repeatCount="indefinite"
+                path="M 270,-80 L 0,5 L 0,165"
+              />
+            </circle>
+            <circle r="3.5" fill="#10b981" filter="url(#glowLight)">
+              <animateMotion
+                dur="5s"
+                repeatCount="indefinite"
+                path="M 0,-150 L 0,5 L -270,100"
+              />
+            </circle>
+          </g>
+
+          {/* ======================================================== */}
+          {/* 5. INTERACTIVE WORKSTATIONS & AUTOMATON AGENTS           */}
+          {/* ======================================================== */}
           {Object.entries(WORKSTATION_CONFIG).map(([id, conf]) => {
             const agent = getAgentData(id);
-            const pos = toScreen(conf.gridX, conf.gridY);
+            const pos = conf.deskPos;
             const isSelected = selectedAgentId?.toLowerCase() === id;
             const isHovered = hoveredAgentId === id;
             const isWorking = agent.status === 'working';
@@ -419,7 +1327,10 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
                 key={id}
                 transform={`translate(${pos.x}, ${pos.y})`}
                 className="cursor-pointer transition-all duration-200"
-                onClick={() => handleDeskClick(id)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDeskClick(id);
+                }}
                 data-testid={`desk-${id}`}
                 onMouseEnter={() => setHoveredAgentId(id)}
                 onMouseLeave={() => setHoveredAgentId(null)}
@@ -447,14 +1358,11 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
                 {conf.deskType === 'executive' && (
                   /* Tyler: Executive Mahogany Desk & Strategy Monitor */
                   <g id="tyler-desk">
-                    {/* Chair */}
                     <ellipse cx="0" cy="-8" rx="14" ry="7" fill="#1e1b4b" />
                     <polygon points="-12,-8 12,-8 10,-32 -10,-32" fill="#0f172a" stroke="#312e81" strokeWidth="1.5" />
-                    {/* Desk base */}
-                    <polygon points="0,-10 46,13 0,36 -46,13" fill="url(#woodGrad)" stroke="#78350f" strokeWidth="1.5" />
+                    <polygon points="0,-10 46,13 0,36 -46,13" fill="url(#mahoganyGrad)" stroke="#78350f" strokeWidth="1.5" />
                     <polygon points="46,13 46,26 0,49 0,36" fill="#1c0d02" />
                     <polygon points="-46,13 -46,26 0,49 0,36" fill="#0f0701" />
-                    {/* Golden accent bar */}
                     <line x1="-38" y1="13" x2="0" y2="32" stroke="#f59e0b" strokeWidth="1.2" opacity="0.7" />
                     <line x1="0" y1="32" x2="38" y2="13" stroke="#f59e0b" strokeWidth="1.2" opacity="0.7" />
                     {/* Laptop Screen */}
@@ -469,25 +1377,20 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
                 {conf.deskType === 'code' && (
                   /* Coder: Triple Curved Monitor Matrix Desk */
                   <g id="coder-desk">
-                    {/* Chair */}
                     <ellipse cx="0" cy="-6" rx="14" ry="7" fill="#064e3b" />
                     <polygon points="-10,-6 10,-6 9,-28 -9,-28" fill="#022c22" stroke="#10b981" strokeWidth="1.5" />
-                    {/* Desk surface */}
-                    <polygon points="0,-8 48,16 0,40 -48,16" fill="url(#metalGrad)" stroke="#475569" strokeWidth="1.5" />
+                    <polygon points="0,-8 48,16 0,40 -48,16" fill="#1e293b" stroke="#10b981" strokeWidth="1.5" />
                     <polygon points="48,16 48,28 0,52 0,40" fill="#0f172a" />
                     <polygon points="-48,16 -48,28 0,52 0,40" fill="#090d16" />
-                    {/* Triple Monitors */}
                     {/* Center Screen */}
                     <polygon points="-14,-2 14,-2 14,-24 -14,-24" fill="url(#screenCodeGrad)" stroke="#10b981" strokeWidth="1.2" />
                     {/* Left Angled Screen */}
                     <polygon points="-36,8 -16,-1 -16,-23 -36,-14" fill="#022c22" stroke="#10b981" strokeWidth="1" />
                     {/* Right Angled Screen */}
                     <polygon points="16,-1 36,8 36,-14 16,-23" fill="#022c22" stroke="#10b981" strokeWidth="1" />
-                    {/* Matrix Code lines */}
                     <line x1="-10" y1="-18" x2="10" y2="-18" stroke="#34d399" strokeWidth="1" opacity="0.8" />
                     <line x1="-10" y1="-12" x2="6" y2="-12" stroke="#34d399" strokeWidth="1" opacity="0.8" />
                     <line x1="-10" y1="-6" x2="12" y2="-6" stroke="#34d399" strokeWidth="1" opacity="0.8" />
-                    {/* Keyboard with RGB Glow */}
                     <polygon points="-12,12 12,12 10,18 -10,18" fill="#0f172a" stroke="#10b981" strokeWidth="0.8" />
                   </g>
                 )}
@@ -495,17 +1398,12 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
                 {conf.deskType === 'art' && (
                   /* Artist: Creative Drafting Tablet & Palette Desk */
                   <g id="artist-desk">
-                    {/* Stool */}
                     <ellipse cx="0" cy="-6" rx="12" ry="6" fill="#831843" />
-                    {/* Drafting Desk */}
                     <polygon points="0,-8 46,15 0,38 -46,15" fill="#334155" stroke="#ec4899" strokeWidth="1.5" />
                     <polygon points="46,15 46,26 0,49 0,38" fill="#1e293b" />
                     <polygon points="-46,15 -46,26 0,49 0,38" fill="#0f172a" />
-                    {/* Large Drawing Tablet (Cintiq style) tilted */}
                     <polygon points="-18,4 18,4 14,-18 -14,-18" fill="url(#screenArtGrad)" stroke="#ec4899" strokeWidth="1.5" />
-                    {/* Stylus */}
                     <line x1="5" y1="1" x2="15" y2="7" stroke="#f472b6" strokeWidth="2" strokeLinecap="round" />
-                    {/* 3D Wireframe preview icon floating */}
                     <circle cx="28" cy="-5" r="7" fill="none" stroke="#f472b6" strokeWidth="1" strokeDasharray="2 2" className="animate-spin" />
                   </g>
                 )}
@@ -513,17 +1411,13 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
                 {conf.deskType === 'ops' && (
                   /* DevOps: Terminal Desk & Server Rack Unit */
                   <g id="ops-desk">
-                    {/* Chair */}
                     <ellipse cx="0" cy="-6" rx="14" ry="7" fill="#1e3a8a" />
                     <polygon points="-10,-6 10,-6 9,-28 -9,-28" fill="#0f172a" stroke="#3b82f6" strokeWidth="1.5" />
-                    {/* Desk */}
                     <polygon points="0,-8 46,15 0,38 -46,15" fill="#1e293b" stroke="#3b82f6" strokeWidth="1.5" />
                     <polygon points="46,15 46,26 0,49 0,38" fill="#0f172a" />
                     <polygon points="-46,15 -46,26 0,49 0,38" fill="#090d16" />
-                    {/* Dual Terminal Monitors */}
                     <polygon points="-24,0 -2,-11 -2,-32 -24,-21" fill="url(#screenOpsGrad)" stroke="#3b82f6" strokeWidth="1.2" />
                     <polygon points="2,-11 24,0 24,-21 2,-32" fill="url(#screenOpsGrad)" stroke="#3b82f6" strokeWidth="1.2" />
-                    {/* System load metric graph bar */}
                     <line x1="-20" y1="-14" x2="-6" y2="-21" stroke="#60a5fa" strokeWidth="1.5" />
                     <line x1="6" y1="-21" x2="20" y2="-14" stroke="#60a5fa" strokeWidth="1.5" />
                   </g>
@@ -532,45 +1426,35 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
                 {conf.deskType === 'qa' && (
                   /* QA: Testing Workstation & Verification Terminal */
                   <g id="qa-desk">
-                    {/* Chair */}
                     <ellipse cx="0" cy="-6" rx="14" ry="7" fill="#164e63" />
                     <polygon points="-10,-6 10,-6 9,-28 -9,-28" fill="#083344" stroke="#06b6d4" strokeWidth="1.5" />
-                    {/* Desk */}
                     <polygon points="0,-8 46,15 0,38 -46,15" fill="#1e293b" stroke="#06b6d4" strokeWidth="1.5" />
                     <polygon points="46,15 46,26 0,49 0,38" fill="#0f172a" />
                     <polygon points="-46,15 -46,26 0,49 0,38" fill="#090d16" />
-                    {/* Test Console Monitor */}
                     <polygon points="-18,0 18,0 15,-22 -15,-22" fill="url(#screenQaGrad)" stroke="#06b6d4" strokeWidth="1.5" />
-                    {/* Pass/Fail indicator checks */}
                     <circle cx="-8" cy="-11" r="2.5" fill="#34d399" />
                     <circle cx="0" cy="-11" r="2.5" fill="#34d399" />
                     <circle cx="8" cy="-11" r="2.5" fill="#38bdf8" />
-                    {/* Diagnostic pad */}
                     <polygon points="-28,14 -12,22 -16,28 -32,20" fill="#f8fafc" stroke="#64748b" strokeWidth="1" />
                   </g>
                 )}
 
                 {conf.deskType === 'web' && (
-                  /* WebDev: Browser Window, Component Grid & Device Preview */
+                  /* WebDev: Browser Window & Device Preview Desk */
                   <g id="webdev-desk">
-                    {/* Chair */}
                     <ellipse cx="0" cy="-6" rx="14" ry="7" fill="#0c4a6e" />
                     <polygon points="-10,-6 10,-6 9,-28 -9,-28" fill="#082f49" stroke="#0ea5e9" strokeWidth="1.5" />
-                    {/* Desk */}
                     <polygon points="0,-8 46,15 0,38 -46,15" fill="#1e293b" stroke="#0ea5e9" strokeWidth="1.5" />
                     <polygon points="46,15 46,26 0,49 0,38" fill="#0f172a" />
                     <polygon points="-46,15 -46,26 0,49 0,38" fill="#090d16" />
-                    {/* Wide browser monitor with tab bar */}
                     <polygon points="-22,0 22,0 22,-26 -22,-26" fill="url(#screenWebGrad)" stroke="#0ea5e9" strokeWidth="1.2" />
                     <rect x="-22" y="-26" width="44" height="5" fill="#0369a1" />
                     <circle cx="-18" cy="-23.5" r="1.1" fill="#f87171" />
                     <circle cx="-14.5" cy="-23.5" r="1.1" fill="#fbbf24" />
                     <circle cx="-11" cy="-23.5" r="1.1" fill="#34d399" />
-                    {/* Component layout blocks */}
                     <rect x="-18" y="-18" width="16" height="6" rx="1" fill="#38bdf8" opacity="0.85" />
                     <rect x="1" y="-18" width="17" height="6" rx="1" fill="#818cf8" opacity="0.75" />
                     <rect x="-18" y="-9" width="36" height="5" rx="1" fill="#22d3ee" opacity="0.6" />
-                    {/* Phone preview for responsive testing */}
                     <rect x="27" y="2" width="8" height="14" rx="1.5" fill="#0f172a" stroke="#38bdf8" strokeWidth="1" />
                     <rect x="28.5" y="4" width="5" height="9" fill="#0ea5e9" opacity="0.7" />
                   </g>
@@ -588,7 +1472,6 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
 
                 {/* --- FLOATING STATUS BUBBLE & AGENT LABEL --- */}
                 <g id="floating-status" transform="translate(0, -68)">
-                  {/* Name Banner Pill */}
                   <rect
                     x="-55"
                     y="-16"
@@ -600,7 +1483,6 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
                     strokeWidth={isSelected ? '2' : '1'}
                     className="drop-shadow-lg"
                   />
-                  {/* Status Indicator Dot */}
                   <circle
                     cx="-42"
                     cy="-4"
@@ -615,7 +1497,6 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
                     fill={statusColor}
                   />
 
-                  {/* Profile Name & Status text */}
                   <text
                     x="-32"
                     y="0"
@@ -701,11 +1582,17 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
             );
           })}
 
-          {/* Workflow quick-preview popover for the clicked desk */}
+          {/* ======================================================== */}
+          {/* 6. WORKFLOW QUICK-PREVIEW POPOVER FOR CLICKED DESK       */}
+          {/* ======================================================== */}
           {popoverAgent && popoverAssignment && popoverPos && (
             <foreignObject
-              x={popoverPos.x + 60 + POPOVER_W > 460 ? popoverPos.x - 60 - POPOVER_W : popoverPos.x + 60}
-              y={Math.max(-255, popoverPos.y - 150)}
+              x={
+                popoverPos.x + 50 + POPOVER_W > 500
+                  ? popoverPos.x - 50 - POPOVER_W
+                  : popoverPos.x + 50
+              }
+              y={Math.max(-280, Math.min(80, popoverPos.y - 120))}
               width={POPOVER_W}
               height={POPOVER_H}
             >
@@ -749,8 +1636,11 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
                   <button
                     onClick={() => {
                       setPopoverId(null);
-                      onOpenWorkflow?.(popoverAssignment.run_id, popoverAssignment.node,
-                        popoverAgent.profile_name);
+                      onOpenWorkflow?.(
+                        popoverAssignment.run_id,
+                        popoverAssignment.node,
+                        popoverAgent.profile_name
+                      );
                     }}
                     disabled={!onOpenWorkflow}
                     className="flex-1 flex items-center justify-center gap-1 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold rounded-md px-2 py-1 transition disabled:opacity-50"
