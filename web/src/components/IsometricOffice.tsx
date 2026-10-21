@@ -5,6 +5,7 @@ import { deskStatusColor } from './WorkflowAssignmentBadge';
 import { ModularCharacter } from './character/ModularCharacter';
 import { getAgentSkin } from './character/characterSkins';
 import { generateDefaultCampus, assignDefaultRoomForAgent, CampusGrid, getIsometricPolygonPoints, gridToIso } from '../grid';
+import { OfficeProp } from './office/props/OfficeProps';
 import { Hammer, Plus, Square, DoorOpen, Paintbrush } from 'lucide-react';
 import { usePanZoom } from '../hooks/usePanZoom';
 import {
@@ -182,7 +183,7 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
   const [campusGrid, setCampusGrid] = useState<CampusGrid>(() => generateDefaultCampus());
   const [hoveredTileKey, setHoveredTileKey] = useState<string | null>(null);
   const [buildMode, setBuildMode] = useState<boolean>(false);
-  const [buildTool, setBuildTool] = useState<'floor' | 'wall_n' | 'wall_w' | 'door' | 'corridor' | 'new_suite'>('floor');
+  const [buildTool, setBuildTool] = useState<'floor' | 'wall_n' | 'wall_w' | 'door' | 'corridor' | 'cooler' | 'server' | 'coffee' | 'whiteboard' | 'plant' | 'sofa' | 'eraser' | 'new_suite'>('floor');
   const [customSkins, setCustomSkins] = useState<Record<string, any>>(() => {
     try {
       return JSON.parse(localStorage.getItem('agent_office_custom_skins') || '{}');
@@ -207,6 +208,15 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
     setCampusGrid((prev) => {
       const newTiles = { ...prev.tiles };
       const existing = newTiles[key] || { x, y, type: 'empty' };
+      if (buildTool === 'eraser') {
+        delete existing.propId;
+        newTiles[key] = { ...existing, type: 'empty' };
+        return { ...prev, tiles: newTiles };
+      }
+      if (buildTool === 'cooler' || buildTool === 'server' || buildTool === 'coffee' || buildTool === 'whiteboard' || buildTool === 'plant' || buildTool === 'sofa') {
+        newTiles[key] = { ...existing, type: existing.type === 'empty' ? 'floor' : existing.type, propId: buildTool };
+        return { ...prev, tiles: newTiles };
+      }
       let newType: any = buildTool;
       if (buildTool === 'door') newType = 'door_n';
       if (buildTool === 'new_suite') {
@@ -465,6 +475,27 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
               {tool === 'door' && <DoorOpen size={10} />}
               {tool === 'corridor' && <Layers size={10} />}
               <span>{tool.toUpperCase()}</span>
+            </button>
+          ))}
+          {/* Props tools */}
+          {(['cooler', 'server', 'coffee', 'whiteboard', 'plant', 'sofa', 'eraser'] as const).map((prop) => (
+            <button
+              key={prop}
+              type="button"
+              onClick={() => setBuildTool(prop)}
+              className={`px-2 py-0.5 rounded text-[10px] font-mono transition flex items-center gap-1 cursor-pointer ${
+                buildTool === prop
+                  ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                  : 'bg-slate-800/70 text-slate-300 hover:bg-slate-700 border border-slate-700'
+              }`}
+            >
+              {prop === 'cooler' && <span>🚰 Cooler</span>}
+              {prop === 'server' && <span>🖥️ Server</span>}
+              {prop === 'coffee' && <span>☕ Coffee</span>}
+              {prop === 'whiteboard' && <span>📋 Board</span>}
+              {prop === 'plant' && <span>🪴 Plant</span>}
+              {prop === 'sofa' && <span>🛋️ Sofa</span>}
+              {prop === 'eraser' && <span className="text-rose-400">🧹 Eraser</span>}
             </button>
           ))}
           <button
@@ -1397,6 +1428,20 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
                 path="M 0,-150 L 0,5 L -270,100"
               />
             </circle>
+          </g>
+
+          {/* --- PLACED THE SIMS OFFICE PROPS --- */}
+          <g id="placed-office-props">
+            {Object.values(campusGrid.tiles)
+              .filter((t) => Boolean(t.propId))
+              .map((tile) => {
+                const { isoX, isoY } = gridToIso(tile.x, tile.y);
+                return (
+                  <g key={`prop-${tile.x},${tile.y}`} transform={`translate(${isoX}, ${isoY})`}>
+                    <OfficeProp propId={tile.propId!} />
+                  </g>
+                );
+              })}
           </g>
 
           {/* --- THE SIMS INTERACTIVE TILE GRID LAYER --- */}
