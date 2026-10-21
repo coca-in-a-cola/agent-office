@@ -4,7 +4,15 @@ import { StatusBadge } from './StatusBadge';
 import { deskStatusColor } from './WorkflowAssignmentBadge';
 import { ModularCharacter } from './character/ModularCharacter';
 import { getAgentSkin } from './character/characterSkins';
-import { generateDefaultCampus, assignDefaultRoomForAgent, CampusGrid, getIsometricPolygonPoints, gridToIso } from '../grid';
+import {
+  generateDefaultCampus,
+  assignDefaultRoomForAgent,
+  CampusGrid,
+  getIsometricPolygonPoints,
+  gridToIso,
+  findPath,
+  pathToSvgD,
+} from '../grid';
 import { OfficeProp } from './office/props/OfficeProps';
 import { RenderIsometricTile } from './office/tiles/IsometricTiles';
 import { Hammer, Plus, Square, DoorOpen, Paintbrush } from 'lucide-react';
@@ -357,6 +365,34 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
         return 'M 0,-150 L 0,5 L -140,-70 L -270,-80';
     }
   }, [activeCourierInfo]);
+
+  const { aStarCourierPath, activeSenderId, isFacingLeft } = useMemo(() => {
+    const parts = (activeCourierInfo || 'coder-to-qa').split('-');
+    const sId = parts[0] === 'web' ? 'webdev' : parts[0];
+    const rId = parts[2] === 'web' ? 'webdev' : parts[2];
+
+    const sRoom = campusGrid.rooms[sId];
+    const rRoom = campusGrid.rooms[rId];
+
+    let pathStr = '';
+    let facingLeft = false;
+
+    if (sRoom && rRoom) {
+      const coords = findPath(campusGrid, sRoom.deskCoord, rRoom.deskCoord);
+      if (coords && coords.length > 1) {
+        pathStr = pathToSvgD(coords);
+        facingLeft = coords[coords.length - 1].x < coords[0].x;
+      }
+    }
+    if (!pathStr) {
+      pathStr = courierPathData;
+    }
+    return {
+      aStarCourierPath: pathStr,
+      activeSenderId: sId,
+      isFacingLeft: facingLeft,
+    };
+  }, [activeCourierInfo, campusGrid, courierPathData]);
 
   // Friendly label for the task courier HUD banner
   const courierLabel = useMemo(() => {
@@ -1413,7 +1449,7 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
             {/* SVG Motion Path definition for Task Courier */}
             <path
               id="courierTrack"
-              d={courierPathData}
+              d={aStarCourierPath}
               fill="none"
               stroke="none"
             />
@@ -1434,9 +1470,10 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
               {/* Autonomous Walking Agent on Own Legs */}
               <g transform="translate(0, -12)">
                 <ModularCharacter
-                  skin={getAgentSkin('coder')}
+                  skin={customSkins[activeSenderId] || getAgentSkin(activeSenderId)}
                   pose="walking"
-                  scale={0.78}
+                  scale={0.82}
+                  facing={isFacingLeft ? 'left' : 'right'}
                 />
               </g>
 

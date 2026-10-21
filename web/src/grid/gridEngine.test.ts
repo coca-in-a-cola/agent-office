@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, test } from 'bun:test';
 import {
   gridToIso,
   isoToGrid,
@@ -11,7 +11,8 @@ import {
   assignDefaultRoomForAgent,
   CORE_SUITES,
 } from './campusGenerator';
-import { findPath, isTileWalkable, isWalkable } from './pathfinding';
+import { findPath, isTileWalkable, isWalkable, pathToSvgD } from './pathfinding';
+import { TileCoord } from './gridTypes';
 
 describe('AO-GRID-01: Isometric Grid Math', () => {
   it('performs round-trip conversion between grid and isometric screen coordinates', () => {
@@ -196,4 +197,17 @@ describe('AO-GRID-01: A* Pathfinding', () => {
     // Out of bounds
     expect(findPath(campus, coderDesk, { x: 999, y: 999 })).toBeNull();
   });
+
+  test('pathToSvgD converts coordinate path to valid SVG path string', () => {
+    const coords: TileCoord[] = [
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: 1, y: 1 },
+    ];
+    const pathStr = pathToSvgD(coords);
+    expect(pathStr).toStartWith('M 0.0,0.0 L');
+    expect(pathToSvgD(null)).toBe('');
+    expect(pathToSvgD([])).toBe('');
+  });
 });
+

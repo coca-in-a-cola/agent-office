@@ -138,3 +138,19 @@ export function findPath(
 
   return null;
 }
+
+import { gridToIso } from './gridMath';
+
+/**
+ * Converts an array of TileCoords into an isometric SVG path 'M x,y L x,y ...'
+ */
+export function pathToSvgD(path: TileCoord[] | null, tileW = 64, tileH = 32): string {
+  if (!path || path.length === 0) return '';
+  return path
+    .map((coord, idx) => {
+      const { isoX, isoY } = gridToIso(coord.x, coord.y, tileW, tileH);
+      return `${idx === 0 ? 'M' : 'L'} ${isoX.toFixed(1)},${isoY.toFixed(1)}`;
+    })
+    .join(' ');
+}
+
