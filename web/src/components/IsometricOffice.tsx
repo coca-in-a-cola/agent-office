@@ -2,7 +2,10 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Agent } from '../types';
 import { StatusBadge } from './StatusBadge';
 import { deskStatusColor } from './WorkflowAssignmentBadge';
-import { AutomatonAgent } from './automaton/AutomatonAgent';
+import { ModularCharacter } from './character/ModularCharacter';
+import { getAgentSkin } from './character/characterSkins';
+import { generateDefaultCampus, assignDefaultRoomForAgent, CampusGrid } from '../grid';
+import { Hammer, Plus, Square, DoorOpen, Paintbrush } from 'lucide-react';
 import { usePanZoom } from '../hooks/usePanZoom';
 import {
   ZoomIn,
@@ -176,6 +179,9 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
   const [popoverId, setPopoverId] = useState<string | null>(null);
   const [activePipelineOverride, setActivePipelineOverride] = useState<string | null>(null);
   const [animationTick, setAnimationTick] = useState<number>(0);
+  const [, setCampusGrid] = useState<CampusGrid>(() => generateDefaultCampus());
+  const [buildMode, setBuildMode] = useState<boolean>(false);
+  const [buildTool, setBuildTool] = useState<'floor' | 'wall_n' | 'wall_w' | 'door' | 'corridor' | 'new_suite'>('floor');
 
   // Periodic heartbeat for blinking lights & ambient runner transitions
   useEffect(() => {
@@ -389,7 +395,58 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
           <Zap size={10} className="text-amber-400" />
           <span>Dispatch Courier</span>
         </button>
+
+        <button
+          onClick={() => setBuildMode((b) => !b)}
+          className={`ml-2 flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-medium transition ${
+            buildMode
+              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/50 shadow-[0_0_10px_rgba(245,158,11,0.25)]'
+              : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700/80 border border-slate-700'
+          }`}
+          title="Toggle The Sims Room & Corridor Build Mode"
+        >
+          <Hammer size={12} className={buildMode ? 'text-amber-400' : 'text-slate-400'} />
+          <span>{buildMode ? 'Exit Build Mode' : 'The Sims Build Mode'}</span>
+        </button>
       </div>
+
+      {/* The Sims Build Mode Palette Toolbar */}
+      {buildMode && (
+        <div className="w-full bg-slate-900/90 border-b border-amber-500/30 px-3 py-1.5 flex items-center gap-2 text-xs backdrop-blur-sm z-10 animate-fadeIn">
+          <span className="text-amber-400 font-semibold font-mono text-[10.5px] uppercase flex items-center gap-1 mr-1">
+            <Hammer size={11} /> Build Tools:
+          </span>
+          {(['floor', 'wall_n', 'wall_w', 'door', 'corridor'] as const).map((tool) => (
+            <button
+              key={tool}
+              onClick={() => setBuildTool(tool)}
+              className={`px-2 py-0.5 rounded text-[10px] font-mono transition flex items-center gap-1 ${
+                buildTool === tool
+                  ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                  : 'bg-slate-800/70 text-slate-300 hover:bg-slate-700 border border-slate-700'
+              }`}
+            >
+              {tool === 'floor' && <Paintbrush size={10} />}
+              {(tool === 'wall_n' || tool === 'wall_w') && <Square size={10} />}
+              {tool === 'door' && <DoorOpen size={10} />}
+              {tool === 'corridor' && <Layers size={10} />}
+              <span>{tool.toUpperCase()}</span>
+            </button>
+          ))}
+          <button
+            onClick={() =>
+              setCampusGrid((g) =>
+                assignDefaultRoomForAgent(g, `agent-${Date.now()}`, 'engineer', 'New Studio')
+              )
+            }
+            className="ml-auto px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border border-emerald-500/50 flex items-center gap-1 transition"
+            title="Auto-generate and attach a new suite for a hired employee"
+          >
+            <Plus size={10} />
+            <span>+ NEW SUITE</span>
+          </button>
+        </div>
+      )}
 
       {/* Main Isometric SVG Compound Canvas */}
       <div ref={containerRef} className="w-full h-full flex items-center justify-center p-3 touch-none">
@@ -1254,31 +1311,21 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
               {/* Shadow under courier */}
               <ellipse cx="0" cy="5" rx="10" ry="5" fill="#000000" opacity="0.5" />
 
-              {/* Articulated Runner Drone / Courier */}
-              <g transform="translate(0, -6)">
-                {/* Speed particle trail */}
-                <circle cx="-12" cy="0" r="2.5" fill="#38bdf8" opacity="0.3" />
-                <circle cx="-20" cy="0" r="1.5" fill="#38bdf8" opacity="0.15" />
+              {/* Autonomous Walking Agent on Own Legs */}
+              <g transform="translate(0, -12)">
+                <ModularCharacter
+                  skin={getAgentSkin('coder')}
+                  pose="walking"
+                  scale={0.78}
+                />
+              </g>
 
-                {/* Courier Chassis */}
-                <polygon points="0,-12 9,-5 0,2 -9,-5" fill="#38bdf8" stroke="#0284c7" strokeWidth="1" />
-                <polygon points="9,-5 9,4 0,11 0,2" fill="#0f172a" />
-                <polygon points="-9,-5 -9,4 0,11 0,2" fill="#020617" />
-
-                {/* Glowing Task Capsule / Briefcase */}
-                <rect x="-5" y="-8" width="10" height="7" rx="1.5" fill="#f59e0b" stroke="#fbbf24" strokeWidth="0.8" className="animate-pulse" />
-                <line x1="-3" y1="-5" x2="3" y2="-5" stroke="#ffffff" strokeWidth="0.8" />
-
-                {/* Optical Eye / Sensor Visor */}
-                <circle cx="6" cy="-2" r="1.5" fill="#38bdf8" />
-
-                {/* Floating Courier Role Badge */}
-                <g transform="translate(0, -22)">
-                  <rect x="-30" y="-8" width="60" height="13" rx="6.5" fill="#0f172a" stroke="#38bdf8" strokeWidth="1" />
-                  <text x="0" y="1" fill="#38bdf8" fontSize="6.5" fontWeight="bold" textAnchor="middle" fontFamily="JetBrains Mono, monospace">
-                    ⚡ TASK COURIER
-                  </text>
-                </g>
+              {/* Floating Courier Role Badge */}
+              <g transform="translate(0, -28)">
+                <rect x="-30" y="-8" width="60" height="13" rx="6.5" fill="#0f172a" stroke="#38bdf8" strokeWidth="1" />
+                <text x="0" y="1" fill="#38bdf8" fontSize="6.5" fontWeight="bold" textAnchor="middle" fontFamily="JetBrains Mono, monospace">
+                  ⚡ TASK COURIER
+                </text>
               </g>
             </g>
 
@@ -1461,15 +1508,14 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
                   </g>
                 )}
 
-                {/* --- MECHANICAL AUTOMATON AGENT SEATED AT WORKSTATION --- */}
-                <AutomatonAgent
-                  agentId={id}
-                  status={agent.status}
-                  accentColor={conf.accentColor}
-                  deskType={conf.deskType}
-                  isWorking={isWorking}
-                  isSelected={isSelected}
-                />
+                {/* --- MODULAR CHARACTER SEATED AT WORKSTATION (WORKING VS SLEEPING) --- */}
+                <g transform="translate(0, -16)">
+                  <ModularCharacter
+                    skin={getAgentSkin(id, conf.role)}
+                    pose={isWorking ? 'seated_work' : 'seated_sleep'}
+                    scale={0.88}
+                  />
+                </g>
 
                 {/* --- FLOATING STATUS BUBBLE & AGENT LABEL --- */}
                 <g id="floating-status" transform="translate(0, -68)">
