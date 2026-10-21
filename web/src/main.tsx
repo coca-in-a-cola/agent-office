@@ -1,7 +1,9 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './App';
-import './index.css';
+import './styles/component-compat.css';
+import './styles/office.scss';
+import './styles/mobile.scss';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

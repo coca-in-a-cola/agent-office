@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import os
+import sys
 import tempfile
 import time
 import unittest
@@ -13,6 +14,8 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from agent_office.auth import SessionStore, telegram_role, validate_telegram_init_data
 from agent_office.server import create_server

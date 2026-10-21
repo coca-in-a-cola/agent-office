@@ -1,0 +1,323 @@
+/* Mobile Adaptation & Telegram Mini App Navigation SCSS */
+
+/* Mobile Bottom Navigation (Hidden on Desktop) */
+.mobile-navigation {
+  display: none;
+}
+
+/* Agent Inspector Bottom Sheet / Drawer */
+.inspector-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.inspector-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(4, 7, 15, 0.65);
+  backdrop-filter: blur(4px);
+  border: none;
+  cursor: pointer;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.agent-inspector {
+  position: relative;
+  z-index: 51;
+  width: 460px;
+  max-width: 100vw;
+  height: 100%;
+  background: #0d1424;
+  border-left: 1px solid var(--border-color);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  outline: none;
+  animation: slideInRight 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.inspector-grip {
+  display: none;
+  width: 100%;
+  padding: 10px 0 6px;
+  justify-content: center;
+  touch-action: none;
+
+  span {
+    width: 42px;
+    height: 4px;
+    border-radius: 2px;
+    background: #334155;
+  }
+}
+
+.inspector-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  .inspector-avatar {
+    width: 42px;
+    height: 42px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #0f766e, #06b6d4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 18px;
+    color: #fff;
+    border: 1px solid rgba(6, 182, 212, 0.4);
+  }
+
+  .inspector-identity {
+    flex: 1;
+
+    h2 {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    p {
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+  }
+
+  .icon-button {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    padding: 6px;
+    border-radius: 6px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    &:hover {
+      color: var(--text-primary);
+      background: rgba(255, 255, 255, 0.08);
+    }
+  }
+}
+
+.inspector-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  font-size: 13px;
+
+  section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+
+    h3 {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+  }
+
+  .inspector-card {
+    background: rgba(17, 24, 39, 0.6);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 12px;
+
+    code {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--accent-cyan);
+    }
+  }
+
+  .capability-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+
+    span {
+      font-size: 11px;
+      font-family: var(--font-mono);
+      background: rgba(6, 182, 212, 0.1);
+      border: 1px solid rgba(6, 182, 212, 0.25);
+      color: var(--accent-cyan);
+      padding: 3px 8px;
+      border-radius: 4px;
+    }
+  }
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes slideInUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+/* -------------------------------------------------------------
+   MOBILE BREAKPOINT (< 768px): Telegram Mini App Vertical Mode
+   ------------------------------------------------------------- */
+@media (max-width: 768px) {
+  /* Hide Desktop Header Elements */
+  .desktop-navigation,
+  .office-subtabs,
+  .sync-time,
+  .brand-caption {
+    display: none !important;
+  }
+
+  .office-header {
+    height: 48px;
+    padding: 0 12px;
+    padding-top: var(--safe-top);
+  }
+
+  .office-brand h1 {
+    font-size: 14px;
+  }
+
+  .user-badge {
+    padding: 3px 8px;
+    font-size: 11px;
+  }
+
+  /* Workspace Layout on Mobile */
+  .office-workspace {
+    flex-direction: column;
+    padding-bottom: calc(56px + var(--safe-bottom));
+  }
+
+  .studio-viewport {
+    padding-bottom: calc(56px + var(--safe-bottom));
+  }
+
+  /* Single View at a Time */
+  .office-workspace--office {
+    .office-main {
+      display: flex !important;
+      width: 100% !important;
+      height: 100% !important;
+    }
+    .office-roster {
+      display: none !important;
+    }
+  }
+
+  .office-workspace--roster {
+    .office-main {
+      display: none !important;
+    }
+    .office-roster {
+      display: flex !important;
+      width: 100% !important;
+      height: 100% !important;
+      border-left: none;
+    }
+  }
+
+  .office-workspace--activities {
+    .office-main {
+      display: flex !important;
+      width: 100% !important;
+      height: 100% !important;
+    }
+    .office-roster {
+      display: none !important;
+    }
+  }
+
+  /* Mobile Bottom Navigation Bar */
+  .mobile-navigation {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: calc(56px + var(--safe-bottom));
+    padding-bottom: var(--safe-bottom);
+    background: rgba(12, 18, 32, 0.95);
+    backdrop-filter: blur(16px);
+    border-top: 1px solid var(--border-color);
+    z-index: 40;
+    justify-content: space-around;
+    align-items: center;
+
+    button {
+      flex: 1;
+      height: 100%;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      font-size: 10px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      touch-action: manipulation;
+
+      span {
+        letter-spacing: -0.01em;
+      }
+
+      &[aria-current='page'] {
+        color: var(--accent-cyan);
+        font-weight: 600;
+
+        svg {
+          filter: drop-shadow(0 0 6px rgba(6, 182, 212, 0.6));
+          transform: translateY(-1px);
+        }
+      }
+    }
+  }
+
+  /* Inspector as Bottom Sheet on Mobile */
+  .inspector-layer {
+    justify-content: center;
+    align-items: flex-end;
+  }
+
+  .agent-inspector {
+    width: 100vw;
+    max-width: 100vw;
+    height: auto;
+    max-height: 82vh;
+    border-radius: 20px 20px 0 0;
+    border-left: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.15);
+    box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.8);
+    animation: slideInUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    padding-bottom: var(--safe-bottom);
+  }
+
+  .inspector-grip {
+    display: flex;
+  }
+}

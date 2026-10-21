@@ -56,7 +56,7 @@ export const EmployeeRoster: React.FC<EmployeeRosterProps> = ({
   }, {} as Record<AgentStatus, number>);
 
   return (
-    <aside className="w-full lg:w-[420px] h-full flex flex-col bg-[#0b0f19] border-l border-slate-800 shrink-0 select-none">
+    <aside className="employee-roster" aria-label="Employee roster">
       {/* Header */}
       <div className="p-4 border-b border-slate-800 bg-[#0f172a]/60 backdrop-blur-md">
         <div className="flex items-center justify-between mb-3">
