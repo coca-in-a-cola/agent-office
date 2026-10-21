@@ -540,6 +540,17 @@ MIGRATIONS: list[Migration] = [
         CREATE INDEX IF NOT EXISTS idx_routing_decisions_timestamp ON routing_decisions(timestamp);
         """,
     ),
+    Migration(
+        version=2,
+        description="Campus grid persistence table for The Sims room layouts",
+        up_sql="""
+        CREATE TABLE IF NOT EXISTS campus_grid (
+            id TEXT PRIMARY KEY,
+            layout_json TEXT,
+            updated_at REAL
+        );
+        """,
+    ),
 ]
 
 
@@ -1351,6 +1362,33 @@ class OfficeStorage:
             "total_cost": 0.0,
             "active_tasks": 0,
         })
+
+    @_fail_open(default_return=None)
+    def get_campus_grid(self, grid_id: str = "default") -> Optional[dict[str, Any]]:
+        """Retrieve saved campus grid layout JSON, or None if not set."""
+        with self._lock:
+            conn = self.get_connection()
+            cur = conn.execute("SELECT layout_json FROM campus_grid WHERE id = ?;", (grid_id,))
+            row = cur.fetchone()
+            if row and row["layout_json"]:
+                return json.loads(row["layout_json"])
+        return None
+
+    @_fail_open(default_return=False)
+    def save_campus_grid(self, grid_data: dict[str, Any], grid_id: str = "default") -> bool:
+        """Persist campus grid layout JSON."""
+        now = time.time()
+        raw_json = json.dumps(grid_data)
+        with self._lock:
+            conn = self.get_connection()
+            conn.execute(
+                """
+                INSERT INTO campus_grid (id, layout_json, updated_at) VALUES (?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET layout_json=excluded.layout_json, updated_at=excluded.updated_at;
+                """,
+                (grid_id, raw_json, now),
+            )
+        return True
 
 
 class EventSink:

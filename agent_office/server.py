@@ -525,6 +525,10 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
             self.handle_api_health()
             return
 
+        if parsed_path == "/api/office/grid":
+            self.handle_api_call(lambda: {"status": "ok", "grid": self.storage.get_campus_grid()})
+            return
+
         # Route: Process Studio workflow API
         if self.is_workflow_path(parsed_path):
             self.handle_workflow("GET", parsed_path)
@@ -740,6 +744,12 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
                 return
             if self.is_editor_path(parsed_path):
                 self.handle_editor("POST", parsed_path)
+                return
+            if parsed_path == "/api/office/grid":
+                payload = self.read_json_body()
+                grid_payload = payload.get("grid", payload) if isinstance(payload, dict) else payload
+                saved = self.storage.save_campus_grid(grid_payload)
+                self.handle_api_call(lambda: {"status": "ok", "saved": bool(saved)})
                 return
             self.send_json(HTTPStatus.NOT_FOUND, {"status": "error", "message": "not found"})
         except WorkflowApiError as exc:
