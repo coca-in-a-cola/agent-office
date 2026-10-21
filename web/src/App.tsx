@@ -101,6 +101,7 @@ export const App: React.FC = () => {
   );
 
   const [studioFocus, setStudioFocus] = useState<StudioFocus | null>(null);
+  const [authUser, setAuthUser] = useState<{ id: string; role: string; name?: string } | null>(null);
 
   const switchView = (next: View) => {
     setView(next);
@@ -126,6 +127,38 @@ export const App: React.FC = () => {
       setIsLive(false);
     }
   };
+
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        const tg = (window as any).Telegram?.WebApp;
+        if (tg) {
+          tg.ready();
+          tg.expand();
+          if (tg.initData) {
+            const res = await fetch('/api/auth/telegram', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ initData: tg.initData }),
+            });
+            if (res.ok) {
+              const data = await res.json();
+              setAuthUser(data.user);
+              return;
+            }
+          }
+        }
+        const meRes = await fetch('/api/auth/me');
+        if (meRes.ok) {
+          const meData = await meRes.json();
+          setAuthUser(meData.user);
+        }
+      } catch (err) {
+        console.warn('Auth initialization:', err);
+      }
+    };
+    initAuth();
+  }, []);
 
   useEffect(() => {
     fetchState();
@@ -166,7 +199,15 @@ export const App: React.FC = () => {
         </div>
 
         {/* Primary navigation: Process Studio / Tycoon View */}
-        <nav className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-xs" aria-label="Views">
+        <div className="flex items-center gap-2">
+          {authUser && (
+            <div className="hidden sm:flex items-center gap-1.5 text-xs text-slate-300 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-md">
+              <span className="w-2 h-2 rounded-full bg-emerald-400" />
+              <span className="font-mono text-[11px] text-cyan-300">{authUser.name || authUser.id}</span>
+              <span className="text-[10px] text-slate-500 uppercase">({authUser.role})</span>
+            </div>
+          )}
+          <nav className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-xs" aria-label="Views">
           <button
             onClick={() => switchView('studio')}
             aria-current={view === 'studio' ? 'page' : undefined}
@@ -192,6 +233,7 @@ export const App: React.FC = () => {
             Tycoon View
           </button>
         </nav>
+        </div>
 
         {/* Tycoon sub-tabs */}
         <div className={`items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-xs ${view === 'tycoon' ? 'flex' : 'hidden'}`}>
