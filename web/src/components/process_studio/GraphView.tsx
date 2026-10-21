@@ -211,6 +211,10 @@ export const GraphView: React.FC<GraphViewProps> = ({
         fitViewOptions={{ padding: 0.25 }}
         minZoom={0.3}
         maxZoom={1.8}
+        preventScrolling={false}
+        panOnDrag={true}
+        zoomOnPinch={true}
+        panOnScroll={false}
         proOptions={{ hideAttribution: true }}
         className="bg-neutral-950"
       >

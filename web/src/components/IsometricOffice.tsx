@@ -3,6 +3,7 @@ import { Agent } from '../types';
 import { StatusBadge } from './StatusBadge';
 import { deskStatusColor } from './WorkflowAssignmentBadge';
 import { AutomatonAgent } from './automaton/AutomatonAgent';
+import { usePanZoom } from '../hooks/usePanZoom';
 import {
   ZoomIn,
   ZoomOut,
@@ -170,7 +171,7 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
   onSelectAgent,
   onOpenWorkflow,
 }) => {
-  const [zoom, setZoom] = useState<number>(1);
+  const { zoom, pan, setZoom, reset, containerRef, isPanning } = usePanZoom<HTMLDivElement>({ minZoom: 0.35, maxZoom: 3.0, initialZoom: 1.0 });
   const [hoveredAgentId, setHoveredAgentId] = useState<string | null>(null);
   const [popoverId, setPopoverId] = useState<string | null>(null);
   const [activePipelineOverride, setActivePipelineOverride] = useState<string | null>(null);
@@ -308,21 +309,21 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
         <span className="text-cyan-300 font-mono text-[11px]">6-Suite Campus</span>
         <span className="text-slate-600">|</span>
         <button
-          onClick={() => setZoom((z) => Math.min(z + 0.15, 1.6))}
+          onClick={() => setZoom((z) => Math.min(Number((z + 0.15).toFixed(2)), 3.0))}
           className="p-1 hover:text-white hover:bg-slate-800 rounded transition"
           title="Zoom In"
         >
           <ZoomIn size={14} />
         </button>
         <button
-          onClick={() => setZoom((z) => Math.max(z - 0.15, 0.7))}
+          onClick={() => setZoom((z) => Math.max(Number((z - 0.15).toFixed(2)), 0.35))}
           className="p-1 hover:text-white hover:bg-slate-800 rounded transition"
           title="Zoom Out"
         >
           <ZoomOut size={14} />
         </button>
         <button
-          onClick={() => setZoom(1)}
+          onClick={reset}
           className="p-1 hover:text-white hover:bg-slate-800 rounded transition"
           title="Reset View"
         >
@@ -391,11 +392,11 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
       </div>
 
       {/* Main Isometric SVG Compound Canvas */}
-      <div className="w-full h-full flex items-center justify-center p-3">
+      <div ref={containerRef} className="w-full h-full flex items-center justify-center p-3 touch-none">
         <svg
           viewBox="-540 -320 1080 620"
-          className="w-full h-full max-h-[90vh] transition-transform duration-300 ease-out"
-          style={{ transform: `scale(${zoom})` }}
+          className={`w-full h-full max-h-[90vh] ${isPanning ? '' : 'transition-transform duration-200 ease-out'}`}
+          style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
         >
           <defs>
             {/* Background Radial Shading */}
