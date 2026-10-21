@@ -4,6 +4,7 @@ import { App } from './App';
 import './styles/component-compat.css';
 import './styles/office.scss';
 import './styles/mobile.scss';
+import './styles/automaton.scss';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

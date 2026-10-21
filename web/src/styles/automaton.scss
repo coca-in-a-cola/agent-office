@@ -1,0 +1,144 @@
+/* Mechanical Automaton Kinematics & Animations SCSS */
+
+.automaton-root {
+  transform-origin: 0px 0px;
+  pointer-events: none;
+
+  /* Idle Mechanical Sway */
+  .automaton-chassis {
+    animation: automaton-idle 3.5s ease-in-out infinite;
+    transform-origin: 0px -15px;
+  }
+
+  /* Role-Specific Eye / Lens Pulses */
+  .automaton-lens {
+    animation: lens-glow 2s ease-in-out infinite alternate;
+  }
+
+  .automaton-antenna {
+    transform-origin: 0px -42px;
+    animation: antenna-twitch 4s ease-in-out infinite;
+  }
+
+  /* Status-Driven Behaviors */
+  &.status-working {
+    .automaton-arm-left {
+      animation: arm-tap-left 0.28s ease-in-out infinite alternate;
+      transform-origin: -12px -18px;
+    }
+
+    .automaton-arm-right {
+      animation: arm-tap-right 0.28s ease-in-out 0.14s infinite alternate;
+      transform-origin: 12px -18px;
+    }
+
+    .automaton-chassis {
+      animation: automaton-work-bob 0.56s ease-in-out infinite alternate;
+    }
+
+    .automaton-screen-glow {
+      animation: screen-flicker 0.15s ease-in-out infinite;
+    }
+  }
+
+  &.status-idle {
+    .automaton-chassis {
+      animation: automaton-idle 4s ease-in-out infinite;
+    }
+  }
+
+  &.status-error,
+  &.status-blocked {
+    .automaton-chassis {
+      animation: automaton-glitch 1.5s steps(2, start) infinite;
+    }
+    .automaton-lens {
+      fill: #f43f5e !important;
+      filter: drop-shadow(0 0 6px #f43f5e);
+    }
+  }
+}
+
+/* Keyframes */
+@keyframes automaton-idle {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-2px) rotate(0.4deg);
+  }
+}
+
+@keyframes automaton-work-bob {
+  0% {
+    transform: translateY(0px);
+  }
+  100% {
+    transform: translateY(-1.5px);
+  }
+}
+
+@keyframes arm-tap-left {
+  0% {
+    transform: rotate(0deg) translateY(0px);
+  }
+  100% {
+    transform: rotate(-14deg) translateY(3px);
+  }
+}
+
+@keyframes arm-tap-right {
+  0% {
+    transform: rotate(0deg) translateY(0px);
+  }
+  100% {
+    transform: rotate(14deg) translateY(3px);
+  }
+}
+
+@keyframes lens-glow {
+  0% {
+    opacity: 0.75;
+    filter: drop-shadow(0 0 2px currentColor);
+  }
+  100% {
+    opacity: 1;
+    filter: drop-shadow(0 0 8px currentColor);
+  }
+}
+
+@keyframes antenna-twitch {
+  0%, 85%, 100% {
+    transform: rotate(0deg);
+  }
+  90% {
+    transform: rotate(-4deg);
+  }
+  95% {
+    transform: rotate(3deg);
+  }
+}
+
+@keyframes screen-flicker {
+  0%, 100% {
+    opacity: 0.85;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes automaton-glitch {
+  0%, 100% {
+    transform: translate(0, 0);
+  }
+  20% {
+    transform: translate(-1px, 1px);
+  }
+  40% {
+    transform: translate(1px, -1px);
+  }
+  60% {
+    transform: translate(-0.5px, 0);
+  }
+}

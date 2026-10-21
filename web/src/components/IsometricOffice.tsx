@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Agent } from '../types';
 import { StatusBadge } from './StatusBadge';
 import { deskStatusColor } from './WorkflowAssignmentBadge';
+import { AutomatonAgent } from './automaton/AutomatonAgent';
 import {
   ZoomIn,
   ZoomOut,
@@ -575,23 +576,15 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
                   </g>
                 )}
 
-                {/* --- AVATAR FIGURE SEATED AT WORKSTATION --- */}
-                <g id="avatar" transform="translate(0, -12)">
-                  {/* Avatar Body / Torso */}
-                  <ellipse cx="0" cy="-16" rx="10" ry="12" fill={conf.accentColor} opacity="0.9" />
-                  {/* Avatar Head */}
-                  <circle cx="0" cy="-33" r="8.5" fill="#f8fafc" stroke="#0f172a" strokeWidth="1.5" />
-                  {/* Avatar Face/Visor */}
-                  <rect x="-4" y="-35" width="8" height="3" rx="1.5" fill="#0f172a" />
-
-                  {/* Typing Hand Motion Animation when Status is 'Working' */}
-                  {isWorking && (
-                    <g className="animate-typing">
-                      <circle cx="-6" cy="-4" r="2.5" fill="#f8fafc" />
-                      <circle cx="6" cy="-4" r="2.5" fill="#f8fafc" />
-                    </g>
-                  )}
-                </g>
+                {/* --- MECHANICAL AUTOMATON AGENT SEATED AT WORKSTATION --- */}
+                <AutomatonAgent
+                  agentId={id}
+                  status={agent.status}
+                  accentColor={conf.accentColor}
+                  deskType={conf.deskType}
+                  isWorking={isWorking}
+                  isSelected={isSelected}
+                />
 
                 {/* --- FLOATING STATUS BUBBLE & AGENT LABEL --- */}
                 <g id="floating-status" transform="translate(0, -68)">
