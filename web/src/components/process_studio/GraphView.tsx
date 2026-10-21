@@ -32,6 +32,66 @@ const nodeTypes: NodeTypes = {
 const NODE_X_SPACING = 300;
 const NODE_Y = 180;
 
+export function definitionToNodes(
+  definition: WorkflowDefinition,
+  nodeStates?: Record<string, NodeRunState>,
+  selectedNode?: string | null,
+  highlightNode?: string | null,
+  onSelectNode?: (node: string) => void
+): Node[] {
+  const nodesByName = Object.fromEntries(definition.nodes.map((n) => [n.name, n]));
+  const flowNodes: Node[] = [];
+
+  // 1. Build Nodes
+  definition.node_order.forEach((name, index) => {
+    const node = nodesByName[name];
+    const run = nodeStates?.[name];
+    const isSelected = selectedNode === name;
+    const isHighlighted = highlightNode === name;
+    const isCurrent = run?.is_current;
+
+    flowNodes.push({
+      id: name,
+      type: 'workflowNode',
+      position: { x: 40 + index * NODE_X_SPACING, y: NODE_Y },
+      data: {
+        name,
+        role: node?.role || 'Agent',
+        goal: node?.goal || '',
+        runState: run,
+        requiresApproval: node?.requires_approval,
+        sideEffecting: node?.side_effecting,
+        inputScope: node?.input_scope,
+        isMandatoryPublication: node?.is_mandatory_publication,
+        isCurrent,
+        isSelected,
+        isHighlighted,
+        onSelect: onSelectNode,
+      },
+    });
+  });
+
+  // Terminal Node
+  let completedFrom: string | null = null;
+  definition.allowed_transitions.forEach((t) => {
+    if (t.target === '@completed') {
+      completedFrom = t.source;
+    }
+  });
+
+  if (completedFrom) {
+    const termX = 40 + definition.node_order.length * NODE_X_SPACING;
+    flowNodes.push({
+      id: 'terminal-done',
+      type: 'terminalNode',
+      position: { x: termX, y: NODE_Y + 16 },
+      data: { label: 'Done' },
+    });
+  }
+
+  return flowNodes;
+}
+
 export const GraphView: React.FC<GraphViewProps> = ({
   definition,
   nodeStates,
@@ -43,54 +103,14 @@ export const GraphView: React.FC<GraphViewProps> = ({
     const columnMap: Record<string, number> = {};
     definition.node_order.forEach((name, i) => (columnMap[name] = i));
 
-    const nodesByName = Object.fromEntries(definition.nodes.map((n) => [n.name, n]));
-    const flowNodes: Node[] = [];
+    const flowNodes = definitionToNodes(
+      definition,
+      nodeStates,
+      selectedNode,
+      highlightNode,
+      onSelectNode
+    );
     const flowEdges: Edge[] = [];
-
-    // 1. Build Nodes
-    definition.node_order.forEach((name, index) => {
-      const def = nodesByName[name];
-      const run = nodeStates?.[name];
-      const isSelected = selectedNode === name;
-      const isHighlighted = highlightNode === name;
-      const isCurrent = run?.is_current;
-
-      flowNodes.push({
-        id: name,
-        type: 'workflowNode',
-        position: { x: 40 + index * NODE_X_SPACING, y: NODE_Y },
-        data: {
-          name,
-          role: def?.role || 'Agent',
-          goal: def?.goal || '',
-          runState: run,
-          requiresApproval: def?.requires_approval,
-          sideEffecting: def?.side_effecting,
-          isCurrent,
-          isSelected,
-          isHighlighted,
-          onSelect: onSelectNode,
-        },
-      });
-    });
-
-    // Terminal Node
-    let completedFrom: string | null = null;
-    definition.allowed_transitions.forEach((t) => {
-      if (t.target === '@completed') {
-        completedFrom = t.source;
-      }
-    });
-
-    if (completedFrom) {
-      const termX = 40 + definition.node_order.length * NODE_X_SPACING;
-      flowNodes.push({
-        id: 'terminal-done',
-        type: 'terminalNode',
-        position: { x: termX, y: NODE_Y + 16 },
-        data: { label: 'Done' },
-      });
-    }
 
     // 2. Build Edges (grouped by source and target)
     const groupedEdges = new Map<string, { source: string; target: string; outcomes: string[] }>();

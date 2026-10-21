@@ -10,6 +10,8 @@ export interface WorkflowNodeData {
   runState?: NodeRunState;
   requiresApproval?: boolean;
   sideEffecting?: boolean;
+  inputScope?: 'project' | 'task' | 'batch';
+  isMandatoryPublication?: boolean;
   isCurrent?: boolean;
   isSelected?: boolean;
   isHighlighted?: boolean;
@@ -117,6 +119,8 @@ export const WorkflowNodeComponent: React.FC<NodeProps> = ({ data, selected }) =
     runState,
     requiresApproval,
     sideEffecting,
+    inputScope,
+    isMandatoryPublication,
     isCurrent,
     isHighlighted,
   } = nodeData;
@@ -157,9 +161,31 @@ export const WorkflowNodeComponent: React.FC<NodeProps> = ({ data, selected }) =
           <h4 className="font-semibold text-xs text-neutral-100 tracking-tight leading-snug">
             {name}
           </h4>
-          <span className="text-[10px] font-mono text-neutral-400 block leading-tight">
-            {role}
-          </span>
+          <div className="flex items-center gap-1 flex-wrap mt-0.5">
+            <span className="text-[10px] font-mono text-neutral-400 block leading-tight">
+              {role}
+            </span>
+            {inputScope === 'project' && (
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold bg-indigo-950 text-indigo-300 border border-indigo-700/60 uppercase">
+                [PROJECT]
+              </span>
+            )}
+            {inputScope === 'task' && (
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold bg-teal-950 text-teal-300 border border-teal-700/60 uppercase">
+                [TASK]
+              </span>
+            )}
+            {inputScope === 'batch' && (
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold bg-purple-950 text-purple-300 border border-purple-700/60 uppercase">
+                [BATCH]
+              </span>
+            )}
+            {isMandatoryPublication && (
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold bg-amber-950 text-amber-300 border border-amber-500/80 shadow-[0_0_8px_rgba(245,158,11,0.4)] uppercase">
+                ★ RELEASE GATE
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Badges: Gate and Side-effect */}

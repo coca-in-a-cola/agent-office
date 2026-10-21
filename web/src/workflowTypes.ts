@@ -31,6 +31,41 @@ export interface DefinitionSummary {
   canonical: boolean;
 }
 
+export interface NodeDefJson {
+  name: string;
+  role: string;
+  goal: string;
+  allowed_executors?: string[];
+  allowed_models?: string[];
+  inputs?: string[];
+  expected_artifacts?: string[];
+  required_fields?: string[];
+  completion_criteria?: string[];
+  timeout_seconds?: number;
+  max_attempts?: number;
+  max_iterations?: number;
+  side_effecting?: boolean;
+  requires_approval?: boolean;
+  approval_scope?: string;
+  input_scope?: 'project' | 'task' | 'batch';
+  is_mandatory_publication?: boolean;
+}
+
+export interface WorkflowTemplate {
+  name: string;
+  version: number;
+  start: string;
+  hash: string;
+  node_count: number;
+  nodes: NodeDefJson[];
+  template_id?: string;
+  definition_hash?: string;
+  canonical?: boolean;
+  node_order?: string[];
+  allowed_transitions?: WorkflowTransition[];
+  roles?: Record<string, string>;
+}
+
 export interface WorkflowNode {
   name: string;
   role: string;
@@ -47,6 +82,8 @@ export interface WorkflowNode {
   side_effecting: boolean;
   requires_approval: boolean;
   approval_scope: string;
+  input_scope?: 'project' | 'task' | 'batch';
+  is_mandatory_publication?: boolean;
 }
 
 export interface WorkflowTransition {

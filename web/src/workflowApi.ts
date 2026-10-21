@@ -4,6 +4,7 @@ import {
   RunDetail,
   RunSummary,
   WorkflowDefinition,
+  WorkflowTemplate,
 } from './workflowTypes';
 
 export class WorkflowApiError extends Error {
@@ -39,6 +40,16 @@ const enc = encodeURIComponent;
 export type RunCommand = 'pause' | 'resume' | 'cancel' | 'approve' | 'retry';
 
 export const workflowApi = {
+  listTemplates: async (): Promise<WorkflowTemplate[]> => {
+    const raw = await request<(WorkflowTemplate & { definition_hash?: string; transitions?: any[] })[]>('GET', '/templates');
+    return raw.map((t) => ({
+      ...t,
+      hash: t.hash || t.definition_hash || '',
+      definition_hash: t.definition_hash || t.hash || '',
+      node_count: t.node_count ?? (t.nodes ? t.nodes.length : 0),
+      allowed_transitions: t.allowed_transitions ?? t.transitions ?? [],
+    }));
+  },
   listDefinitions: () =>
     request<{ definitions: DefinitionSummary[]; canonical_hash: string }>('GET', '/definitions'),
   getDefinition: (hash: string) =>
