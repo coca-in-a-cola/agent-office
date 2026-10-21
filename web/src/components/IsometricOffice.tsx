@@ -4,7 +4,7 @@ import { StatusBadge } from './StatusBadge';
 import { deskStatusColor } from './WorkflowAssignmentBadge';
 import { ModularCharacter } from './character/ModularCharacter';
 import { getAgentSkin } from './character/characterSkins';
-import { generateDefaultCampus, assignDefaultRoomForAgent, CampusGrid } from '../grid';
+import { generateDefaultCampus, assignDefaultRoomForAgent, CampusGrid, getIsometricPolygonPoints, gridToIso } from '../grid';
 import { Hammer, Plus, Square, DoorOpen, Paintbrush } from 'lucide-react';
 import { usePanZoom } from '../hooks/usePanZoom';
 import {
@@ -179,9 +179,26 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
   const [popoverId, setPopoverId] = useState<string | null>(null);
   const [activePipelineOverride, setActivePipelineOverride] = useState<string | null>(null);
   const [animationTick, setAnimationTick] = useState<number>(0);
-  const [, setCampusGrid] = useState<CampusGrid>(() => generateDefaultCampus());
+  const [campusGrid, setCampusGrid] = useState<CampusGrid>(() => generateDefaultCampus());
+  const [hoveredTileKey, setHoveredTileKey] = useState<string | null>(null);
   const [buildMode, setBuildMode] = useState<boolean>(false);
   const [buildTool, setBuildTool] = useState<'floor' | 'wall_n' | 'wall_w' | 'door' | 'corridor' | 'new_suite'>('floor');
+
+  const handleTileClick = (x: number, y: number) => {
+    if (!buildMode) return;
+    const key = `${x},${y}`;
+    setCampusGrid((prev) => {
+      const newTiles = { ...prev.tiles };
+      const existing = newTiles[key] || { x, y, type: 'empty' };
+      let newType: any = buildTool;
+      if (buildTool === 'door') newType = 'door_n';
+      if (buildTool === 'new_suite') {
+        return assignDefaultRoomForAgent(prev, `hire-${Date.now()}`, 'engineer', 'Custom Studio');
+      }
+      newTiles[key] = { ...existing, type: newType };
+      return { ...prev, tiles: newTiles };
+    });
+  };
 
   // Periodic heartbeat for blinking lights & ambient runner transitions
   useEffect(() => {
@@ -1352,6 +1369,68 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
               />
             </circle>
           </g>
+
+          {/* --- THE SIMS INTERACTIVE TILE GRID LAYER --- */}
+          {buildMode && (
+            <g id="sims-interactive-grid">
+              {Object.values(campusGrid.tiles).map((tile) => {
+                const points = getIsometricPolygonPoints(tile.x, tile.y);
+                const isHovered = hoveredTileKey === `${tile.x},${tile.y}`;
+                let fillColor = 'rgba(30, 41, 59, 0.4)';
+                let strokeColor = 'rgba(71, 85, 105, 0.3)';
+                if (tile.type === 'corridor') {
+                  fillColor = 'rgba(14, 165, 233, 0.25)';
+                  strokeColor = '#0ea5e9';
+                } else if (tile.type === 'floor') {
+                  fillColor = 'rgba(245, 158, 11, 0.2)';
+                  strokeColor = '#f59e0b';
+                } else if (tile.type.startsWith('wall') || tile.type.startsWith('corner')) {
+                  fillColor = 'rgba(239, 68, 68, 0.35)';
+                  strokeColor = '#ef4444';
+                } else if (tile.type.startsWith('door')) {
+                  fillColor = 'rgba(16, 185, 129, 0.35)';
+                  strokeColor = '#10b981';
+                }
+                if (isHovered) {
+                  fillColor = 'rgba(245, 158, 11, 0.55)';
+                  strokeColor = '#fbbf24';
+                }
+                return (
+                  <polygon
+                    key={`${tile.x},${tile.y}`}
+                    points={points}
+                    fill={fillColor}
+                    stroke={strokeColor}
+                    strokeWidth={isHovered ? 1.5 : 0.8}
+                    className="cursor-pointer transition-colors duration-150"
+                    onMouseEnter={() => setHoveredTileKey(`${tile.x},${tile.y}`)}
+                    onMouseLeave={() => setHoveredTileKey(null)}
+                    onClick={() => handleTileClick(tile.x, tile.y)}
+                  />
+                );
+              })}
+            </g>
+          )}
+
+          {/* --- DYNAMICALLY ASSIGNED SIMS SUITES --- */}
+          {Object.values(campusGrid.rooms)
+            .filter((r) => !WORKSTATION_CONFIG[r.ownerAgentId])
+            .map((customRoom) => {
+              const { isoX, isoY } = gridToIso(customRoom.deskCoord.x, customRoom.deskCoord.y);
+              return (
+                <g key={customRoom.id} transform={`translate(${isoX}, ${isoY})`}>
+                  <ellipse cx="0" cy="5" rx="35" ry="18" fill="rgba(15, 23, 42, 0.7)" stroke={customRoom.color || '#10b981'} strokeWidth="1" />
+                  <rect x="-24" y="-14" width="48" height="28" rx="4" fill="#1e293b" stroke="#334155" strokeWidth="1" />
+                  <rect x="-14" y="-10" width="28" height="18" rx="2" fill="#0f172a" stroke={customRoom.color || '#10b981'} strokeWidth="0.8" />
+                  <g transform="translate(0, -16)">
+                    <ModularCharacter skin={getAgentSkin('coder')} pose="seated_sleep" scale={0.85} />
+                  </g>
+                  <text x="0" y="24" textAnchor="middle" fill={customRoom.color || '#34d399'} fontSize="9" fontFamily="monospace" fontWeight="600">
+                    {customRoom.name}
+                  </text>
+                </g>
+              );
+            })}
 
           {/* ======================================================== */}
           {/* 5. INTERACTIVE WORKSTATIONS & AUTOMATON AGENTS           */}
