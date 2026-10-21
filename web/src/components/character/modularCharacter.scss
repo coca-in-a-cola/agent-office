@@ -1,0 +1,267 @@
+/* Modular Cutout Skeletal Rig & Keyframe Animations */
+
+.modular-character-root {
+  transform-origin: 0px 0px;
+  pointer-events: auto;
+  user-select: none;
+
+  /* Directional flip */
+  &.dir-left {
+    transform: scaleX(-1);
+  }
+
+  &.dir-up_iso {
+    /* Slight isometric foreshortening for agents walking/facing up */
+    transform: scale(0.96);
+  }
+
+  /* Selection halo */
+  .char-selection-halo {
+    animation: charHaloPulse 2s ease-in-out infinite;
+  }
+
+  /* Core Pivot Groups */
+  .char-torso-group {
+    transform-origin: 0px -18px;
+  }
+
+  .char-head-group {
+    transform-origin: 0px -31px;
+  }
+
+  .char-arm-left {
+    transform-origin: -13px -24px;
+  }
+
+  .char-arm-right {
+    transform-origin: 13px -24px;
+  }
+
+  .char-leg-left {
+    transform-origin: -6px -9px;
+  }
+
+  .char-leg-right {
+    transform-origin: 6px -9px;
+  }
+
+  /* ----------------------------------------------------
+   * Visual Pose States
+   * ---------------------------------------------------- */
+
+  /* 1. SEATED WORK: Active typing & subtle torso bob */
+  &.pose-seated_work {
+    .char-torso-group {
+      animation: charWalkBob 0.35s ease-in-out infinite alternate;
+    }
+
+    .char-head-group {
+      transform: translateY(1px) rotate(3deg);
+    }
+
+    .char-arm-left {
+      animation: charWorkTypingL 0.22s ease-in-out infinite alternate;
+    }
+
+    .char-arm-right {
+      animation: charWorkTypingR 0.22s ease-in-out 0.11s infinite alternate;
+    }
+
+    .char-screen-glow {
+      animation: charCrtFlicker 0.18s ease-in-out infinite;
+    }
+  }
+
+  /* 2. SEATED IDLE: Calm resting state */
+  &.pose-seated_idle {
+    .char-torso-group {
+      animation: charSleepBreathing 4s ease-in-out infinite;
+    }
+
+    .char-head-group {
+      transform: rotate(0deg);
+    }
+  }
+
+  /* 3. SEATED SLEEP: Slumped forward, dim eyes, rising zZz */
+  &.pose-seated_sleep {
+    .char-torso-group {
+      animation: charSleepBreathing 3s ease-in-out infinite;
+    }
+
+    .char-head-group {
+      animation: charHeadSleep 3s ease-in-out infinite;
+    }
+
+    .char-arm-left {
+      transform: rotate(-10deg) translateY(4px);
+    }
+
+    .char-arm-right {
+      transform: rotate(10deg) translateY(4px);
+    }
+
+    .char-eye-active {
+      opacity: 0.25;
+    }
+
+    .char-eye-closed {
+      opacity: 1;
+    }
+
+    .char-zzz {
+      animation: charZzzFloat 2.4s ease-in-out infinite;
+      font-family: monospace, sans-serif;
+      font-weight: 700;
+      fill: #a5b4fc;
+      pointer-events: none;
+
+      &.zzz-1 {
+        animation-delay: 0s;
+      }
+      &.zzz-2 {
+        animation-delay: 0.8s;
+      }
+      &.zzz-3 {
+        animation-delay: 1.6s;
+      }
+    }
+  }
+
+  /* 4. WALKING: Cartoon walk cycle, leg/arm swings, vertical bounce */
+  &.pose-walking {
+    .char-torso-group {
+      animation: charWalkBob 0.26s ease-in-out infinite alternate;
+    }
+
+    .char-leg-left {
+      animation: charWalkCycleL 0.52s ease-in-out infinite alternate;
+    }
+
+    .char-leg-right {
+      animation: charWalkCycleR 0.52s ease-in-out infinite alternate;
+    }
+
+    /* Counter-balanced arm swings */
+    .char-arm-left {
+      animation: charWalkCycleR 0.52s ease-in-out infinite alternate;
+    }
+
+    .char-arm-right {
+      animation: charWalkCycleL 0.52s ease-in-out infinite alternate;
+    }
+  }
+}
+
+/* ----------------------------------------------------
+ * Keyframe Animations (Hardware-Accelerated Transforms)
+ * ---------------------------------------------------- */
+
+/* Pendulum leg & arm swing (Left) */
+@keyframes charWalkCycleL {
+  0% {
+    transform: rotate(-24deg);
+  }
+  100% {
+    transform: rotate(24deg);
+  }
+}
+
+/* Pendulum leg & arm swing (Right) */
+@keyframes charWalkCycleR {
+  0% {
+    transform: rotate(24deg);
+  }
+  100% {
+    transform: rotate(-24deg);
+  }
+}
+
+/* Vertical bounce during stride / typing */
+@keyframes charWalkBob {
+  0% {
+    transform: translateY(0px);
+  }
+  100% {
+    transform: translateY(-2.8px);
+  }
+}
+
+/* Gentle torso heave for breathing / idle / sleep */
+@keyframes charSleepBreathing {
+  0%, 100% {
+    transform: translateY(0px) scale(1, 1);
+  }
+  50% {
+    transform: translateY(1.4px) scale(1.02, 0.98);
+  }
+}
+
+/* Rising, fading, drifting text/bubbles for sleep */
+@keyframes charZzzFloat {
+  0% {
+    transform: translate(0px, 0px) scale(0.6);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.95;
+  }
+  75% {
+    opacity: 0.75;
+  }
+  100% {
+    transform: translate(12px, -22px) scale(1.2);
+    opacity: 0;
+  }
+}
+
+/* Rhythmic robotic keystrokes */
+@keyframes charWorkTypingL {
+  0% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  100% {
+    transform: translateY(3.5px) rotate(-12deg);
+  }
+}
+
+@keyframes charWorkTypingR {
+  0% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  100% {
+    transform: translateY(3.5px) rotate(12deg);
+  }
+}
+
+/* Sleeping head slump */
+@keyframes charHeadSleep {
+  0%, 100% {
+    transform: rotate(14deg) translateY(2.5px);
+  }
+  50% {
+    transform: rotate(17deg) translateY(3.5px);
+  }
+}
+
+/* Selection Halo Pulse */
+@keyframes charHaloPulse {
+  0%, 100% {
+    stroke-opacity: 0.4;
+    transform: scale(1);
+  }
+  50% {
+    stroke-opacity: 0.9;
+    transform: scale(1.04);
+  }
+}
+
+/* CRT Screen Glow Flicker */
+@keyframes charCrtFlicker {
+  0%, 100% {
+    opacity: 0.95;
+  }
+  50% {
+    opacity: 0.75;
+  }
+}
