@@ -6,6 +6,7 @@ import { ModularCharacter } from './character/ModularCharacter';
 import { getAgentSkin } from './character/characterSkins';
 import { generateDefaultCampus, assignDefaultRoomForAgent, CampusGrid, getIsometricPolygonPoints, gridToIso } from '../grid';
 import { OfficeProp } from './office/props/OfficeProps';
+import { RenderIsometricTile } from './office/tiles/IsometricTiles';
 import { Hammer, Plus, Square, DoorOpen, Paintbrush } from 'lucide-react';
 import { usePanZoom } from '../hooks/usePanZoom';
 import {
@@ -1492,33 +1493,12 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
               {Object.values(campusGrid.tiles).map((tile) => {
                 const points = getIsometricPolygonPoints(tile.x, tile.y);
                 const isHovered = hoveredTileKey === `${tile.x},${tile.y}`;
-                let fillColor = 'rgba(30, 41, 59, 0.4)';
-                let strokeColor = 'rgba(71, 85, 105, 0.3)';
-                if (tile.type === 'corridor') {
-                  fillColor = 'rgba(14, 165, 233, 0.25)';
-                  strokeColor = '#0ea5e9';
-                } else if (tile.type === 'floor') {
-                  fillColor = 'rgba(245, 158, 11, 0.2)';
-                  strokeColor = '#f59e0b';
-                } else if (tile.type.startsWith('wall') || tile.type.startsWith('corner')) {
-                  fillColor = 'rgba(239, 68, 68, 0.35)';
-                  strokeColor = '#ef4444';
-                } else if (tile.type.startsWith('door')) {
-                  fillColor = 'rgba(16, 185, 129, 0.35)';
-                  strokeColor = '#10b981';
-                }
-                if (isHovered) {
-                  fillColor = 'rgba(245, 158, 11, 0.55)';
-                  strokeColor = '#fbbf24';
-                }
                 return (
-                  <polygon
+                  <RenderIsometricTile
                     key={`${tile.x},${tile.y}`}
+                    tile={tile}
                     points={points}
-                    fill={fillColor}
-                    stroke={strokeColor}
-                    strokeWidth={isHovered ? 1.5 : 0.8}
-                    className="cursor-pointer transition-colors duration-150"
+                    isHovered={isHovered}
                     onMouseEnter={() => setHoveredTileKey(`${tile.x},${tile.y}`)}
                     onMouseLeave={() => setHoveredTileKey(null)}
                     onClick={() => handleTileClick(tile.x, tile.y)}
