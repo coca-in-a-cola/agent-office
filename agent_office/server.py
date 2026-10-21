@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hmac
 from http import HTTPStatus
+from http.cookies import SimpleCookie, CookieError
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
 import logging
@@ -30,6 +32,7 @@ from .storage import (
     apply_workflow_projection,
     get_default_storage,
 )
+from .auth import SessionStore, telegram_role, validate_telegram_init_data
 from .editor import EditorApiError, EditorService
 from .workflow.service import WorkflowApiError, WorkflowService
 
@@ -51,6 +54,7 @@ ROLE_GRANTS: dict[str, set[str]] = {
     "coder": {"publish_definition", "read_logs"},
     "guest": set(),
 }
+ROLE_GRANTS["owner"] = ROLE_GRANTS["managing_director"].copy()
 ACTOR_GRANTS: dict[str, set[str]] = {
     "tyler": {"create_run", "pause", "resume", "cancel", "retry", "approve", "publish_artifact", "publish_definition", "read_logs"},
     "owner": {"create_run", "pause", "resume", "cancel", "retry", "approve", "publish_artifact", "publish_definition", "read_logs"},
@@ -507,6 +511,10 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
         """Handle GET requests routing API and static assets."""
         parsed_path = self.path.split("?")[0].rstrip("/")
 
+        if parsed_path == "/api/auth/me":
+            self.handle_api_call(lambda: {"status": "ok", "user": self.get_verified_actor(require_auth=True)})
+            return
+
         # Route: API state
         if parsed_path == "/api/state":
             self.handle_api_state()
@@ -591,8 +599,75 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
             if server_port not in ("0", "80", "443") and referer_port not in expected_ports:
                 raise WorkflowApiError(403, f"CSRF protection: referer port mismatch {referer!r}")
 
+    def session_token(self) -> str:
+        authorization = self.headers.get("Authorization", "").strip()
+        if authorization.startswith("Bearer "):
+            return authorization[7:].strip()
+        cookie = SimpleCookie()
+        try:
+            cookie.load(self.headers.get("Cookie", ""))
+        except CookieError:
+            return ""
+        return cookie["session"].value if "session" in cookie else ""
+
+    @staticmethod
+    def session_actor(session: dict[str, Any]) -> dict[str, Any]:
+        return {"id": session["user_id"], "user_id": session["user_id"],
+                "role": session["role"], "name": session["name"]}
+
+    def telegram_user(self, init_data: str) -> dict[str, Any]:
+        data = validate_telegram_init_data(init_data, getattr(self.server, "bot_token", ""))
+        if data is None:
+            raise WorkflowApiError(401, "invalid or expired Telegram initData")
+        return data["user"]
+
+    def handle_auth(self, path: str) -> None:
+        store = self.server.session_store
+        if path == "/api/auth/logout":
+            self.get_verified_actor(require_auth=True)
+            store.revoke_session(self.session_token())
+            self.send_json(200, {"status": "ok"}, {"Set-Cookie":
+                "session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"})
+            return
+        body = self.read_json_body()
+        if path == "/api/auth/telegram":
+            user = self.telegram_user(body.get("initData", ""))
+            name = " ".join(str(user.get(key) or "") for key in ("first_name", "last_name")).strip()
+            session = store.create_session(user["id"], telegram_role(user), name or str(user.get("username", "")))
+        else:
+            token, password = body.get("token"), body.get("password")
+            configured_token = getattr(self.server, "auth_token", None)
+            configured_password = getattr(self.server, "login_password", None)
+            # UTF-8 bytes allow non-ASCII passwords and constant-time comparisons.
+            valid_token = isinstance(token, str) and bool(configured_token) and hmac.compare_digest(
+                token.encode(), configured_token.encode())
+            valid_password = isinstance(password, str) and bool(configured_password) and hmac.compare_digest(
+                password.encode(), configured_password.encode())
+            if valid_token or valid_password:
+                session = store.create_session("owner", "owner", "Owner")
+            elif isinstance(token, str) and (existing := store.get_session(token)):
+                remaining = max(1, int(existing["expires_at"] - time.time()))
+                session = store.create_session(existing["user_id"], existing["role"], existing["name"], remaining)
+            else:
+                raise WorkflowApiError(401, "invalid login credentials")
+        self.send_json(200, {"status": "ok", "token": session["token"],
+                            "user": self.session_actor(session)}, {"Set-Cookie":
+            f"session={session['token']}; Path=/; HttpOnly; SameSite=Lax"})
+
     def get_verified_actor(self, require_auth: bool = False) -> dict[str, Any]:
         auth_header = self.headers.get("Authorization", "").strip()
+        token = self.session_token()
+        if token:
+            session = self.server.session_store.get_session(token)
+            if session is not None:
+                return self.session_actor(session)
+            if not auth_header.startswith("Bearer "):
+                raise WorkflowApiError(401, "invalid or expired session")
+
+        if "X-Telegram-Init-Data" in self.headers:
+            user = self.telegram_user(self.headers["X-Telegram-Init-Data"])
+            return {"id": str(user["id"]), "user_id": str(user["id"]),
+                    "role": telegram_role(user), "name": str(user.get("first_name", ""))}
 
         if auth_header.startswith("Bearer "):
             token = auth_header[7:].strip()
@@ -642,14 +717,12 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
         if client_actor_headers:
             raise WorkflowApiError(403, f"header impersonation rejected: headers {client_actor_headers} require verified authentication")
 
-        return {"id": "anonymous", "role": "guest"}
+        if require_auth:
+            raise WorkflowApiError(401, "authentication required")
+        return {"id": "anonymous", "user_id": None, "role": "guest"}
 
     def check_grant(self, actor: dict[str, Any], action: str) -> None:
-        grants = set()
-        if actor.get("id") in ACTOR_GRANTS:
-            grants |= ACTOR_GRANTS[actor["id"]]
-        if actor.get("role") in ROLE_GRANTS:
-            grants |= ROLE_GRANTS[actor["role"]]
+        grants = ROLE_GRANTS.get(actor.get("role"), set())
 
         if action not in grants and "admin" not in grants:
             raise WorkflowApiError(403, f"actor {actor.get('id')!r} lacks required grant {action!r}")
@@ -659,6 +732,9 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
         parsed_path = self.path.split("?")[0].rstrip("/")
         try:
             self.validate_csrf()
+            if parsed_path in ("/api/auth/telegram", "/api/auth/login", "/api/auth/logout"):
+                self.handle_auth(parsed_path)
+                return
             if self.is_workflow_path(parsed_path):
                 self.handle_workflow("POST", parsed_path)
                 return
@@ -687,12 +763,14 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
     def is_editor_path(path: str) -> bool:
         return path == EDITOR_PREFIX or path.startswith(EDITOR_PREFIX + "/")
 
-    def send_json(self, status: int, data: Any) -> None:
+    def send_json(self, status: int, data: Any, headers: Optional[dict[str, str]] = None) -> None:
         payload = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(payload)))
         self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        for key, value in (headers or {}).items():
+            self.send_header(key, value)
         self.end_headers()
         self.wfile.write(payload)
 
@@ -1089,6 +1167,9 @@ def create_server(
     bridge: Optional[TaskBridgeReader] = None,
     editor: Optional[EditorService] = None,
     auth_token: Optional[str] = None,
+    session_store: Optional[SessionStore] = None,
+    bot_token: Optional[str] = None,
+    login_password: Optional[str] = None,
 ) -> ThreadingHTTPServer:
     """Instantiate and configure ThreadingHTTPServer with OfficeRequestHandler.
 
@@ -1103,6 +1184,10 @@ def create_server(
 
     server = ThreadingHTTPServer((host, port), handler_factory)
     server.auth_token = auth_token or os.environ.get("AGENT_OFFICE_AUTH_TOKEN", "trusted-local-token")
+    server.session_store = session_store if session_store is not None else SessionStore(
+        os.environ.get("AGENT_OFFICE_SESSION_DB", ":memory:"))
+    server.bot_token = bot_token or os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    server.login_password = login_password or os.environ.get("AGENT_OFFICE_LOGIN_PASSWORD")
     return server
 
 
