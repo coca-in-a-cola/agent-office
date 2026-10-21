@@ -181,6 +181,7 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
   const [activePipelineOverride, setActivePipelineOverride] = useState<string | null>(null);
   const [animationTick, setAnimationTick] = useState<number>(0);
   const [campusGrid, setCampusGrid] = useState<CampusGrid>(() => generateDefaultCampus());
+  const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const [hoveredTileKey, setHoveredTileKey] = useState<string | null>(null);
   const [buildMode, setBuildMode] = useState<boolean>(false);
   const [buildTool, setBuildTool] = useState<'floor' | 'wall_n' | 'wall_w' | 'door' | 'corridor' | 'cooler' | 'server' | 'coffee' | 'whiteboard' | 'plant' | 'sofa' | 'eraser' | 'new_suite'>('floor');
@@ -201,6 +202,39 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
     window.addEventListener('skins-updated', handleSkinsUpdate);
     return () => window.removeEventListener('skins-updated', handleSkinsUpdate);
   }, []);
+
+  useEffect(() => {
+    fetch('/api/office/grid')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d && d.status === 'ok' && d.grid && d.grid.tiles && Object.keys(d.grid.tiles).length > 0) {
+          setCampusGrid(d.grid);
+        }
+      })
+      .catch((err) => console.error('Failed to load campus grid from server', err));
+  }, []);
+
+  const handleSaveCampus = async () => {
+    setSaveStatus('Saving...');
+    try {
+      const res = await fetch('/api/office/grid', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ grid: campusGrid }),
+      });
+      const data = await res.json();
+      if (data.status === 'ok') {
+        setSaveStatus('Saved!');
+        setTimeout(() => setSaveStatus(null), 2500);
+      } else {
+        setSaveStatus('Error');
+        setTimeout(() => setSaveStatus(null), 2500);
+      }
+    } catch (err) {
+      setSaveStatus('Error');
+      setTimeout(() => setSaveStatus(null), 2500);
+    }
+  };
 
   const handleTileClick = (x: number, y: number) => {
     if (!buildMode) return;
@@ -521,6 +555,14 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
           >
             <Plus size={10} />
             <span>+ NEW SUITE</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleSaveCampus}
+            className="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold flex items-center gap-1 transition cursor-pointer shadow-sm"
+            title="Save current room and furniture layout to cloud database"
+          >
+            <span>💾 {saveStatus || 'SAVE LAYOUT'}</span>
           </button>
         </div>
       )}
