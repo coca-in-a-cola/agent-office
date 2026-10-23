@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Application, Container, Graphics, Text } from 'pixi.js';
+import { PixiContextLifecycleController, type ContextRecoveryState } from './pixiContextLifecycle';
 import './PixiOfficeCanvas.scss';
 
 interface PixiOfficeCanvasProps {
@@ -8,17 +9,31 @@ interface PixiOfficeCanvasProps {
 
 export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePreview }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const controllerRef = useRef<PixiContextLifecycleController | null>(null);
   const [initError, setInitError] = useState<string | null>(null);
   const [isInitializing, setIsInitializing] = useState<boolean>(true);
   const [retryNonce, setRetryNonce] = useState<number>(0);
+  const [contextState, setContextState] = useState<ContextRecoveryState>('ready');
+  const [contextError, setContextError] = useState<string | null>(null);
+
+  const handleRetryContext = async () => {
+    if (controllerRef.current) {
+      await controllerRef.current.handleContextRestored();
+    } else {
+      setRetryNonce((n) => n + 1);
+    }
+  };
 
   useEffect(() => {
     let isCancelled = false;
     let app: Application | null = null;
     let isInitialized = false;
+    let lifecycleController: PixiContextLifecycleController | null = null;
 
     setIsInitializing(true);
     setInitError(null);
+    setContextState('ready');
+    setContextError(null);
 
     const initPixi = async () => {
       try {
@@ -30,8 +45,9 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
         const pixiApp = new Application();
         app = pixiApp;
 
-        // Version-correct PixiJS v8 Application init
+        // Version-correct PixiJS v8 Application init with explicit WebGL preference
         await pixiApp.init({
+          preference: 'webgl',
           resizeTo: containerRef.current,
           resolution,
           autoDensity: true,
@@ -214,6 +230,35 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
         // Render initial frame
         updateSceneLayout();
 
+        // Attach WebGL context lifecycle controller
+        lifecycleController = new PixiContextLifecycleController();
+        controllerRef.current = lifecycleController;
+
+        lifecycleController.attach({
+          canvas: pixiApp.canvas,
+          ticker: pixiApp.ticker,
+          onRestore: async () => {
+            // Rebuild procedural scene and force render upon context restoration
+            updateSceneLayout();
+            if (pixiApp.renderer) {
+              pixiApp.render();
+            }
+          },
+          onStateChange: (state) => {
+            if (!isCancelled) {
+              setContextState(state);
+              if (state === 'ready') {
+                setContextError(null);
+              }
+            }
+          },
+          onError: (err) => {
+            if (!isCancelled) {
+              setContextError(err.message || 'WebGL context restoration failed');
+            }
+          },
+        });
+
         // Handle resize events
         const handleResize = () => {
           if (!isCancelled && pixiApp.renderer) {
@@ -250,6 +295,12 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
         }
       });
 
+      // Teardown controller detach BEFORE destroying Pixi application
+      if (controllerRef.current) {
+        controllerRef.current.detach();
+        controllerRef.current = null;
+      }
+
       if (app) {
         if (isInitialized) {
           try {
@@ -269,9 +320,15 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
     <section className="pixi-office-canvas-container" aria-label="Tycoon Canvas Technical Preview">
       <header className="pixi-canvas-header">
         <div className="preview-badge-group">
-          <span className="status-pill">
+          <span className={`status-pill ${contextState}`}>
             <span className="dot" />
-            PIXI.JS v8
+            {contextState === 'lost'
+              ? 'WebGL Lost'
+              : contextState === 'recovering'
+              ? 'Restoring WebGL...'
+              : contextState === 'error'
+              ? 'Restore Failed'
+              : 'PIXI.JS v8 (WebGL)'}
           </span>
           <span className="preview-label">Tycoon Canvas Technical Preview</span>
           <span className="preview-subtext">(AO-TYCOON-01)</span>
@@ -331,12 +388,52 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
               <span>Initializing PixiJS v8 Engine...</span>
             </div>
           )}
+
+          {(contextState === 'lost' || contextState === 'recovering') && (
+            <div className="pixi-recovering-indicator" role="status" aria-live="polite">
+              <div className="spinner" />
+              <span>
+                {contextState === 'lost'
+                  ? 'WebGL context lost. Awaiting restoration...'
+                  : 'Restoring WebGL context & isometric scene...'}
+              </span>
+            </div>
+          )}
+
+          {contextState === 'error' && (
+            <div className="pixi-error-container context-error-overlay" role="alert">
+              <div className="error-card">
+                <h3>WebGL Context Restoration Failed</h3>
+                <p>
+                  The GPU context was interrupted and automatic restoration encountered an error.
+                </p>
+                {contextError && <div className="error-details">{contextError}</div>}
+                <div className="error-actions">
+                  <button
+                    type="button"
+                    className="retry-btn"
+                    onClick={handleRetryContext}
+                  >
+                    Retry Context Restore
+                  </button>
+                  <button
+                    type="button"
+                    className="retry-btn secondary"
+                    onClick={() => setRetryNonce((n) => n + 1)}
+                  >
+                    Reinitialize Canvas
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
       <footer className="pixi-canvas-footer">
-        <div className="hud-stat">Renderer: <span>PixiJS Graphics</span></div>
+        <div className="hud-stat">Renderer: <span>PixiJS v8 (WebGL)</span></div>
         <div className="hud-stat">DPI Ratio: <span>{Math.min(typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1, 2)}x</span></div>
+        <div className="hud-stat">Context: <span className={`state-${contextState}`}>{contextState.toUpperCase()}</span></div>
         <div className="hud-stat">Entity: <span>Desk (gx:1, gy:1)</span></div>
       </footer>
     </section>
