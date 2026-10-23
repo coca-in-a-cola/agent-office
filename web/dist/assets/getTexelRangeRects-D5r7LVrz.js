@@ -1,4 +1,4 @@
-import{w as _,e as g,f as d,u as U,B as y,h,E as I,j as p}from"./PixiOfficeCanvas-DO-ePILw.js";const x={name:"local-uniform-bit",vertex:{header:`
+import{w as _,e as g,f as d,u as U,B as y,h,E as I,j as p}from"./PixiOfficeCanvas-CnmZ3WeL.js";const x={name:"local-uniform-bit",vertex:{header:`
 
             struct LocalUniforms {
                 uTransformMatrix:mat3x3<f32>,
