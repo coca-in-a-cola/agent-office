@@ -748,6 +748,8 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
             if parsed_path == "/api/office/grid":
                 payload = self.read_json_body()
                 grid_payload = payload.get("grid", payload) if isinstance(payload, dict) else payload
+                if not isinstance(grid_payload, dict):
+                    raise WorkflowApiError(400, "grid payload must be a JSON object")
                 saved = self.storage.save_campus_grid(grid_payload)
                 self.handle_api_call(lambda: {"status": "ok", "saved": bool(saved)})
                 return

@@ -1365,20 +1365,38 @@ class OfficeStorage:
 
     @_fail_open(default_return=None)
     def get_campus_grid(self, grid_id: str = "default") -> Optional[dict[str, Any]]:
-        """Retrieve saved campus grid layout JSON, or None if not set."""
+        """Retrieve saved campus grid layout JSON, or None if not set.
+        Transparently migrates legacy V1 layouts to V2 (schemaVersion: 2, furniture: []).
+        """
         with self._lock:
             conn = self.get_connection()
             cur = conn.execute("SELECT layout_json FROM campus_grid WHERE id = ?;", (grid_id,))
             row = cur.fetchone()
             if row and row["layout_json"]:
-                return json.loads(row["layout_json"])
+                data = json.loads(row["layout_json"])
+                if isinstance(data, dict):
+                    if "schemaVersion" not in data or data.get("schemaVersion", 1) < 2:
+                        data["schemaVersion"] = 2
+                        if "furniture" not in data:
+                            data["furniture"] = []
+                    return data
         return None
 
     @_fail_open(default_return=False)
     def save_campus_grid(self, grid_data: dict[str, Any], grid_id: str = "default") -> bool:
         """Persist campus grid layout JSON."""
+        if not isinstance(grid_data, dict):
+            return False
+        grid_data = dict(grid_data)
+        grid_data["schemaVersion"] = 2
+        if "furniture" not in grid_data:
+            grid_data["furniture"] = []
+
         now = time.time()
         raw_json = json.dumps(grid_data)
+        if len(raw_json) > 5 * 1024 * 1024:
+            return False
+
         with self._lock:
             conn = self.get_connection()
             conn.execute(

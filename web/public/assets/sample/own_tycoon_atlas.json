@@ -1,0 +1,240 @@
+{
+  "frames": {
+    "floor_sage": {
+      "frame": {
+        "x": 4,
+        "y": 4,
+        "w": 64,
+        "h": 32
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 64,
+        "h": 32
+      },
+      "sourceSize": {
+        "w": 64,
+        "h": 32
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    "wall_cutaway": {
+      "frame": {
+        "x": 76,
+        "y": 4,
+        "w": 224,
+        "h": 160
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 224,
+        "h": 160
+      },
+      "sourceSize": {
+        "w": 224,
+        "h": 160
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.55
+      }
+    },
+    "desk_wood": {
+      "frame": {
+        "x": 308,
+        "y": 4,
+        "w": 160,
+        "h": 144
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 160,
+        "h": 144
+      },
+      "sourceSize": {
+        "w": 160,
+        "h": 144
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.8194444444444444
+      }
+    },
+    "desk_front": {
+      "frame": {
+        "x": 476,
+        "y": 4,
+        "w": 160,
+        "h": 144
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 160,
+        "h": 144
+      },
+      "sourceSize": {
+        "w": 160,
+        "h": 144
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.8194444444444444
+      }
+    },
+    "chair_teal": {
+      "frame": {
+        "x": 644,
+        "y": 4,
+        "w": 112,
+        "h": 128
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 112,
+        "h": 128
+      },
+      "sourceSize": {
+        "w": 112,
+        "h": 128
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.8125
+      }
+    },
+    "ficus": {
+      "frame": {
+        "x": 764,
+        "y": 4,
+        "w": 112,
+        "h": 160
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 112,
+        "h": 160
+      },
+      "sourceSize": {
+        "w": 112,
+        "h": 160
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.88125
+      }
+    },
+    "miro_idle": {
+      "frame": {
+        "x": 884,
+        "y": 4,
+        "w": 80,
+        "h": 112
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 80,
+        "h": 112
+      },
+      "sourceSize": {
+        "w": 80,
+        "h": 112
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.9196428571428571
+      }
+    },
+    "miro_typing_01": {
+      "frame": {
+        "x": 4,
+        "y": 172,
+        "w": 80,
+        "h": 112
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 80,
+        "h": 112
+      },
+      "sourceSize": {
+        "w": 80,
+        "h": 112
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.9196428571428571
+      }
+    },
+    "miro_typing_02": {
+      "frame": {
+        "x": 92,
+        "y": 172,
+        "w": 80,
+        "h": 112
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 80,
+        "h": 112
+      },
+      "sourceSize": {
+        "w": 80,
+        "h": 112
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.9196428571428571
+      }
+    }
+  },
+  "animations": {
+    "miro_idle": [
+      "miro_idle"
+    ],
+    "miro_typing": [
+      "miro_typing_01",
+      "miro_typing_02"
+    ]
+  },
+  "meta": {
+    "app": "Artist-2D native librsvg/Cairo exporter",
+    "version": "1.0",
+    "image": "own_tycoon_atlas.png",
+    "format": "RGBA8888",
+    "size": {
+      "w": 1024,
+      "h": 1024
+    },
+    "scale": "1"
+  }
+}

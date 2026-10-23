@@ -79,16 +79,25 @@ const FALLBACK_STATE: OfficeState = {
   },
 };
 
-export const App: React.FC = () => {
+const PixiOfficeCanvas = React.lazy<React.ComponentType<{
+  agents?: OfficeState['agents'];
+  onSelectAgent?: (agentId: string) => void;
+  onOpenWorkflow?: (runId: string, node: string | null, source?: string) => void;
+  onClosePreview?: () => void;
+}>>(() =>
+  import('./components/canvas/PixiOfficeCanvas').then((m) => ({ default: m.PixiOfficeCanvas as any }))
+);
+
+const MainOfficeApp: React.FC = () => {
   const [state, setState] = useState<OfficeState>(FALLBACK_STATE);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>('coder');
   const [isLive, setIsLive] = useState<boolean>(false);
   const [lastSync, setLastSync] = useState<Date>(new Date());
   const [isInspectorOpen, setIsInspectorOpen] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<OfficeTab>('office');
-  const [view, setView] = useState<View>(
-    window.location.hash === '#studio' ? 'studio' : 'tycoon'
-  );
+  const initialView: View = (typeof window !== 'undefined' && (new URLSearchParams(window.location.search).get('studio') === 'true' || window.location.hash === '#studio')) ? 'studio' : 'tycoon';
+  const [view, setView] = useState<View>(initialView);
+  const isLegacySvg = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('legacy') === 'true';
 
   const [studioFocus, setStudioFocus] = useState<StudioFocus | null>(null);
   const [authUser, setAuthUser] = useState<{ id: string; role: string; name?: string } | null>(null);
@@ -197,7 +206,30 @@ export const App: React.FC = () => {
       {view === 'studio' && <div className="studio-viewport"><ProcessStudio focus={studioFocus} onDismissFocus={() => setStudioFocus(null)} /></div>}
       {view === 'tycoon' && <div className={`office-workspace office-workspace--${activeTab}`}>
         <main className="office-main">
-          {activeTab !== 'activities' ? <IsometricOffice agents={state.agents} selectedAgentId={selectedAgentId} onSelectAgent={handleSelectAgent} onOpenWorkflow={openInStudio} /> : (
+          {activeTab !== 'activities' ? (
+            isLegacySvg ? (
+              <IsometricOffice
+                agents={state.agents}
+                selectedAgentId={selectedAgentId}
+                onSelectAgent={handleSelectAgent}
+                onOpenWorkflow={openInStudio}
+              />
+            ) : (
+              <React.Suspense
+                fallback={
+                  <div className="pixi-loading-placeholder" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', background: '#0b0f19', color: '#94a3b8', fontFamily: 'monospace' }}>
+                    Loading Tycoon Canvas...
+                  </div>
+                }
+              >
+                <PixiOfficeCanvas
+                  agents={state.agents}
+                  onSelectAgent={handleSelectAgent}
+                  onOpenWorkflow={openInStudio}
+                />
+              </React.Suspense>
+            )
+          ) : (
             <section className="activity-feed"><h2><Activity size={20} />Office activity</h2>
               {state.recent_activities.length === 0 ? <div className="empty-state">No activity events recorded yet. Ingest events via hooks to populate feed.</div> : (
                 <div className="activity-list">{state.recent_activities.map((activity) => (
@@ -223,4 +255,8 @@ export const App: React.FC = () => {
       {view === 'tycoon' && isInspectorOpen && selectedAgent && <AgentInspector agent={selectedAgent} onClose={closeInspector} onOpenWorkflow={openInStudio} />}
     </div>
   );
+};
+
+export const App: React.FC = () => {
+  return <MainOfficeApp />;
 };
