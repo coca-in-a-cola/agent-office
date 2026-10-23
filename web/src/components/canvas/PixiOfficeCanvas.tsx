@@ -24,6 +24,7 @@ import {
   type FurnitureRotation,
 } from '../../grid/footprintEngine';
 import { snapToGrid, isoToScreen, calculateDepthZ } from '../../engine/isometric/isoMath';
+import { fetchCampusGrid, saveCampusGrid } from '../../api/gridPersistence';
 import './PixiOfficeCanvas.scss';
 
 interface PixiOfficeCanvasProps {
@@ -110,6 +111,13 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
     let lifecycleController: PixiContextLifecycleController | null = null;
     let touchController: TouchController | null = null;
 
+    fetchCampusGrid().then((grid) => {
+      if (!isCancelled && grid && Array.isArray(grid.furniture)) {
+        setPlacedFurniture(grid.furniture);
+        if (rebuildSceneRef.current) rebuildSceneRef.current();
+      }
+    });
+
     setIsInitializing(true);
     setInitError(null);
     setAssetError(null);
@@ -170,7 +178,9 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
               if (isDeleteModeRef.current) {
                 const existing = findPlacedFurnitureAt(snapped.gx, snapped.gy, placedFurnitureRef.current);
                 if (existing) {
-                  setPlacedFurniture((prev) => prev.filter((p) => p.id !== existing.id));
+                  const updated = placedFurnitureRef.current.filter((p) => p.id !== existing.id);
+                  setPlacedFurniture(updated);
+                  saveCampusGrid({ schemaVersion: 2, width: 8, height: 8, furniture: updated });
                   if (rebuildSceneRef.current) rebuildSceneRef.current();
                 }
               } else if (selectedDefIdRef.current) {
@@ -192,7 +202,9 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
                       gy: snapped.gy,
                       rotation: furnitureRotationRef.current,
                     };
-                    setPlacedFurniture((prev) => [...prev, newItem]);
+                    const updated = [...placedFurnitureRef.current, newItem];
+                    setPlacedFurniture(updated);
+                    saveCampusGrid({ schemaVersion: 2, width: 8, height: 8, furniture: updated });
                     if (rebuildSceneRef.current) rebuildSceneRef.current();
                   }
                 }
