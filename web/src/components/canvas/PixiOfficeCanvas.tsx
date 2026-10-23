@@ -1,6 +1,10 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Application, Container, Graphics, Text } from 'pixi.js';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { Application, Container, Text } from 'pixi.js';
 import { PixiContextLifecycleController, type ContextRecoveryState } from './pixiContextLifecycle';
+import {
+  TycoonAssetManager,
+  type MiroAnimationMode,
+} from './tycoonAssets';
 import './PixiOfficeCanvas.scss';
 
 interface PixiOfficeCanvasProps {
@@ -10,11 +14,25 @@ interface PixiOfficeCanvasProps {
 export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePreview }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<PixiContextLifecycleController | null>(null);
+  const setAnimationModeRef = useRef<((mode: MiroAnimationMode) => void) | null>(null);
+
   const [initError, setInitError] = useState<string | null>(null);
+  const [assetError, setAssetError] = useState<string | null>(null);
   const [isInitializing, setIsInitializing] = useState<boolean>(true);
   const [retryNonce, setRetryNonce] = useState<number>(0);
   const [contextState, setContextState] = useState<ContextRecoveryState>('ready');
   const [contextError, setContextError] = useState<string | null>(null);
+  const [animationMode, setAnimationModeState] = useState<MiroAnimationMode>('typing');
+
+  const handleToggleAnimation = useCallback(() => {
+    setAnimationModeState((prev) => {
+      const nextMode: MiroAnimationMode = prev === 'typing' ? 'idle' : 'typing';
+      if (setAnimationModeRef.current) {
+        setAnimationModeRef.current(nextMode);
+      }
+      return nextMode;
+    });
+  }, []);
 
   const handleRetryContext = async () => {
     if (controllerRef.current) {
@@ -22,6 +40,11 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
     } else {
       setRetryNonce((n) => n + 1);
     }
+  };
+
+  const handleRetryAssetLoad = () => {
+    setAssetError(null);
+    setRetryNonce((n) => n + 1);
   };
 
   useEffect(() => {
@@ -32,6 +55,7 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
 
     setIsInitializing(true);
     setInitError(null);
+    setAssetError(null);
     setContextState('ready');
     setContextError(null);
 
@@ -51,7 +75,7 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
           resizeTo: containerRef.current,
           resolution,
           autoDensity: true,
-          backgroundColor: 0x0b0f19,
+          backgroundColor: 0x0f1d1a, // Sage-dark background matching Walnut & Sage diorama
           antialias: true,
         });
 
@@ -69,166 +93,85 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
         const worldContainer = new Container();
         pixiApp.stage.addChild(worldContainer);
 
-        // 3x3 2:1 Isometric Grid configuration
-        const GRID_SIZE = 3;
-        const TILE_W = 96;
-        const TILE_H = 48; // 2:1 ratio
-        const HALF_W = TILE_W / 2;
-        const HALF_H = TILE_H / 2;
+        // Load the artist-2d texture atlas with visible error handling
+        let spritesheet: any = null;
+        try {
+          spritesheet = await TycoonAssetManager.loadAtlas(false);
+        } catch (loadErr: any) {
+          console.error('Failed to load Tycoon asset atlas:', loadErr);
+          if (!isCancelled) {
+            setAssetError(loadErr?.message || 'Failed to load own_tycoon_atlas.json');
+            setIsInitializing(false);
+          }
+          return;
+        }
+
+        if (isCancelled) {
+          if (app) {
+            try {
+              app.destroy(true, { children: true });
+            } catch (destroyErr) {
+              console.warn('Error during Pixi app destroy after cancel:', destroyErr);
+            }
+            app = null;
+          }
+          return;
+        }
 
         const updateSceneLayout = () => {
-          if (!pixiApp.renderer) return;
+          if (isCancelled || !pixiApp.renderer || !spritesheet) return;
 
-          worldContainer.removeChildren();
+          for (const child of worldContainer.removeChildren()) {
+            child.destroy({ children: true });
+          }
 
           const screenW = pixiApp.screen.width;
           const screenH = pixiApp.screen.height;
 
-          // Center the 3x3 grid within viewport
-          const originX = screenW / 2;
-          const originY = screenH / 2 - 20;
+          // Center the 3x3 diorama within viewport
+          const originX = Math.round(screenW / 2);
+          const originY = Math.round(screenH / 2 - 30);
 
-          // 1. Draw 3x3 Isometric Floor Tiles
-          const floorGraphics = new Graphics();
+          // Build depth-sorted diorama with atlas floor, wall, ficus, chair, miro, desk
+          const diorama = TycoonAssetManager.buildDiorama(
+            spritesheet,
+            originX,
+            originY,
+            animationMode
+          );
 
-          for (let gy = 0; gy < GRID_SIZE; gy++) {
-            for (let gx = 0; gx < GRID_SIZE; gx++) {
-              // 2:1 isometric coordinate transformation
-              const tileCenterX = originX + (gx - gy) * HALF_W;
-              const tileCenterY = originY + (gx + gy) * HALF_H;
-
-              // Alternating subtle tile shades
-              const isEven = (gx + gy) % 2 === 0;
-              const tileColor = isEven ? 0x1e293b : 0x192231;
-              const borderColor = (gx === 1 && gy === 1) ? 0x3b82f6 : 0x334155;
-
-              // Draw isometric diamond
-              floorGraphics
-                .poly([
-                  tileCenterX, tileCenterY - HALF_H,
-                  tileCenterX + HALF_W, tileCenterY,
-                  tileCenterX, tileCenterY + HALF_H,
-                  tileCenterX - HALF_W, tileCenterY,
-                ])
-                .fill({ color: tileColor })
-                .stroke({ width: 1.5, color: borderColor, alpha: (gx === 1 && gy === 1) ? 0.9 : 0.6 });
-            }
+          if (isCancelled) {
+            diorama.rootContainer.destroy({ children: true });
+            return;
           }
-          worldContainer.addChild(floorGraphics);
 
-          // 2. Draw Placeholder Desk on center tile (gx: 1, gy: 1)
-          const deskGridX = 1;
-          const deskGridY = 1;
-          const deskCenterX = originX + (deskGridX - deskGridY) * HALF_W;
-          const deskCenterY = originY + (deskGridX + deskGridY) * HALF_H;
+          setAnimationModeRef.current = diorama.setAnimationMode;
+          worldContainer.addChild(diorama.rootContainer);
 
-          const deskGraphics = new Graphics();
-
-          // Desk dimensions
-          const deskW = 54;
-          const deskH = 27; // 2:1 ratio
-          const deskHalfW = deskW / 2;
-          const deskHalfH = deskH / 2;
-          const deskElevation = 24; // Height from floor to desktop
-
-          const topCenterY = deskCenterY - deskElevation;
-
-          // Drop shadow on floor
-          deskGraphics
-            .poly([
-              deskCenterX, deskCenterY - deskHalfH * 0.9,
-              deskCenterX + deskHalfW * 1.1, deskCenterY,
-              deskCenterX, deskCenterY + deskHalfH * 1.1,
-              deskCenterX - deskHalfW * 1.1, deskCenterY,
-            ])
-            .fill({ color: 0x070a10, alpha: 0.5 });
-
-          // Desk front-left face (extrusion)
-          deskGraphics
-            .poly([
-              deskCenterX - deskHalfW, topCenterY,
-              deskCenterX, topCenterY + deskHalfH,
-              deskCenterX, deskCenterY,
-              deskCenterX - deskHalfW, deskCenterY - deskHalfH,
-            ])
-            .fill({ color: 0x1e293b })
-            .stroke({ width: 1, color: 0x0f172a, alpha: 0.8 });
-
-          // Desk front-right face (extrusion)
-          deskGraphics
-            .poly([
-              deskCenterX, topCenterY + deskHalfH,
-              deskCenterX + deskHalfW, topCenterY,
-              deskCenterX + deskHalfW, deskCenterY - deskHalfH,
-              deskCenterX, deskCenterY,
-            ])
-            .fill({ color: 0x0f172a })
-            .stroke({ width: 1, color: 0x090d16, alpha: 0.8 });
-
-          // Desktop surface (top isometric diamond)
-          deskGraphics
-            .poly([
-              deskCenterX, topCenterY - deskHalfH,
-              deskCenterX + deskHalfW, topCenterY,
-              deskCenterX, topCenterY + deskHalfH,
-              deskCenterX - deskHalfW, topCenterY,
-            ])
-            .fill({ color: 0x2563eb })
-            .stroke({ width: 1.5, color: 0x60a5fa, alpha: 0.9 });
-
-          // Placeholder Computer Monitor atop desk
-          const monitorBaseY = topCenterY - 4;
-          const monitorW = 20;
-          const monitorH = 14;
-
-          // Monitor stand
-          deskGraphics
-            .rect(deskCenterX - 2, monitorBaseY - 4, 4, 5)
-            .fill({ color: 0x64748b });
-
-          // Monitor screen back/frame
-          deskGraphics
-            .rect(deskCenterX - monitorW / 2, monitorBaseY - monitorH - 4, monitorW, monitorH)
-            .fill({ color: 0x0f172a })
-            .stroke({ width: 1, color: 0x38bdf8 });
-
-          // Monitor active screen glow
-          deskGraphics
-            .rect(deskCenterX - (monitorW - 4) / 2, monitorBaseY - monitorH - 2, monitorW - 4, monitorH - 4)
-            .fill({ color: 0x38bdf8 });
-
-          worldContainer.addChild(deskGraphics);
-
-          // 3. Technical Preview Labels via Pixi Text
+          // Technical preview diorama title
           const titleText = new Text({
-            text: 'AO-TYCOON-01 PREVIEW: 3x3 2:1 ISOMETRIC GRID',
+            text: 'WALNUT & SAGE — 3×3 DIORAMA (SAMPLE ART)',
             style: {
               fontFamily: 'monospace',
-              fontSize: 12,
-              fill: 0x94a3b8,
+              fontSize: 11,
+              fill: 0xa9bda7,
               letterSpacing: 1,
             },
           });
           titleText.anchor.set(0.5, 1);
-          titleText.position.set(originX, originY - 2.5 * HALF_H);
+          titleText.position.set(originX, originY - 70);
           worldContainer.addChild(titleText);
-
-          const deskLabel = new Text({
-            text: 'PLACEHOLDER DESK (1,1)',
-            style: {
-              fontFamily: 'monospace',
-              fontSize: 10,
-              fill: 0x38bdf8,
-              fontWeight: 'bold',
-            },
-          });
-          deskLabel.anchor.set(0.5, 0);
-          deskLabel.position.set(deskCenterX, deskCenterY + deskHalfH + 10);
-          worldContainer.addChild(deskLabel);
         };
+
+        if (isCancelled) return;
 
         // Render initial frame
         updateSceneLayout();
+        if (pixiApp.renderer) {
+          pixiApp.render();
+        }
+
+        if (isCancelled) return;
 
         // Attach WebGL context lifecycle controller
         lifecycleController = new PixiContextLifecycleController();
@@ -238,7 +181,20 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
           canvas: pixiApp.canvas,
           ticker: pixiApp.ticker,
           onRestore: async () => {
-            // Rebuild procedural scene and force render upon context restoration
+            // 1. Dispose old sprites before unloading textures so display tree doesn't reference dead textures
+            for (const child of worldContainer.removeChildren()) {
+              child.destroy({ children: true });
+            }
+            setAnimationModeRef.current = null;
+
+            // 2. Real texture atlas reload/resource recreation on restore required
+            try {
+              spritesheet = await TycoonAssetManager.loadAtlas(true);
+            } catch (err: any) {
+              console.error('Texture atlas reload failed during context restoration:', err);
+              throw new Error(`Texture atlas recreation failed: ${err?.message || err}`);
+            }
+
             updateSceneLayout();
             if (pixiApp.renderer) {
               pixiApp.render();
@@ -259,6 +215,12 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
           },
         });
 
+        if (isCancelled) {
+          lifecycleController.detach();
+          controllerRef.current = null;
+          return;
+        }
+
         // Handle resize events
         const handleResize = () => {
           if (!isCancelled && pixiApp.renderer) {
@@ -272,7 +234,6 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
           setIsInitializing(false);
         }
 
-        // Cleanup listener attachment
         return () => {
           window.removeEventListener('resize', handleResize);
         };
@@ -289,6 +250,7 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
 
     return () => {
       isCancelled = true;
+      setAnimationModeRef.current = null;
       cleanupPromise.then((cleanupFn) => {
         if (typeof cleanupFn === 'function') {
           cleanupFn();
@@ -313,6 +275,11 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
           }
         }
       }
+
+      // Cleanup texture ownership safely without breaking shared cache
+      TycoonAssetManager.unloadAtlas().catch((err) => {
+        console.warn('Error unloading Tycoon atlas during cleanup:', err);
+      });
     };
   }, [retryNonce]);
 
@@ -330,13 +297,26 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
               ? 'Restore Failed'
               : 'PIXI.JS v8 (WebGL)'}
           </span>
-          <span className="preview-label">Tycoon Canvas Technical Preview</span>
+          <span className="sample-review-pill">Sample Art • Pending Review</span>
+          <span className="preview-label">Tycoon Diorama Preview</span>
           <span className="preview-subtext">(AO-TYCOON-01)</span>
         </div>
 
         <div className="preview-metadata">
+          <div className="animation-toggle-group">
+            <span className="toggle-label">Miro:</span>
+            <button
+              type="button"
+              className={`toggle-mode-btn ${animationMode === 'idle' ? 'active' : ''}`}
+              onClick={handleToggleAnimation}
+              title="Toggle Miro between Idle pose and Typing animation (6 fps)"
+            >
+              {animationMode === 'typing' ? 'Typing (6 fps)' : 'Idle'}
+            </button>
+          </div>
+
           <span className="meta-item">
-            Grid: <strong>3×3 (2:1 Isometric)</strong>
+            Grid: <strong>3×3 (2:1 Dimetric)</strong>
           </span>
           <span className="meta-item">
             DPI Cap: <strong>2× Max</strong>
@@ -380,12 +360,29 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
             </button>
           </div>
         </div>
+      ) : assetError ? (
+        <div className="pixi-error-container" role="alert">
+          <div className="error-card">
+            <h3>Atlas Asset Loading Failed</h3>
+            <p>
+              Failed to load the sample Tycoon texture atlas (/assets/sample/own_tycoon_atlas.json).
+            </p>
+            <div className="error-details">{assetError}</div>
+            <button
+              type="button"
+              className="retry-btn"
+              onClick={handleRetryAssetLoad}
+            >
+              Retry Asset Load
+            </button>
+          </div>
+        </div>
       ) : (
         <div className="pixi-viewport-wrapper" ref={containerRef}>
           {isInitializing && (
             <div className="pixi-loading-indicator">
               <div className="spinner" />
-              <span>Initializing PixiJS v8 Engine...</span>
+              <span>Loading Atlas & Initializing PixiJS v8...</span>
             </div>
           )}
 
@@ -395,7 +392,7 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
               <span>
                 {contextState === 'lost'
                   ? 'WebGL context lost. Awaiting restoration...'
-                  : 'Restoring WebGL context & isometric scene...'}
+                  : 'Restoring WebGL context & reloading texture atlas...'}
               </span>
             </div>
           )}
@@ -434,7 +431,8 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
         <div className="hud-stat">Renderer: <span>PixiJS v8 (WebGL)</span></div>
         <div className="hud-stat">DPI Ratio: <span>{Math.min(typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1, 2)}x</span></div>
         <div className="hud-stat">Context: <span className={`state-${contextState}`}>{contextState.toUpperCase()}</span></div>
-        <div className="hud-stat">Entity: <span>Desk (gx:1, gy:1)</span></div>
+        <div className="hud-stat">Animation: <span>{animationMode.toUpperCase()} (6fps)</span></div>
+        <div className="hud-stat">Art: <span>Walnut & Sage (Sample)</span></div>
       </footer>
     </section>
   );

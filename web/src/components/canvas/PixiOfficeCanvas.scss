@@ -81,6 +81,19 @@
         }
       }
 
+      .sample-review-pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.2rem 0.6rem;
+        background: rgba(217, 162, 84, 0.18);
+        border: 1px solid rgba(217, 162, 84, 0.4);
+        border-radius: 9999px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #f7daa1;
+        letter-spacing: 0.03em;
+      }
+
       .preview-label {
         font-size: 0.875rem;
         font-weight: 600;

@@ -1,0 +1,205 @@
+{
+  "id": "AO-TYCOON-01-own-tycoon-sample",
+  "title": "Walnut & Sage",
+  "createdUtc": "2026-10-23T16:14:25.929695+00:00",
+  "projection": {
+    "type": "2:1 dimetric",
+    "tileSize": [
+      64,
+      32
+    ],
+    "formula": "screenX=(gx-gy)*32; screenY=(gx+gy)*16-z"
+  },
+  "provenance": {
+    "author": "Artist-2D / OpenAI gpt-6.1-sol",
+    "method": "Original hand-authored SVG geometry, Python art-export script, local system librsvg + Cairo; no external artwork or image generator.",
+    "model": "gpt-6.1-sol (SVG authoring, not image synthesis)",
+    "prompt": "AO-TYCOON-01: original cozy Game Dev Tycoon homage; sage 64x32 floor, cutaway wall, warm wooden desk with monitor and mug, chair, ficus, expressive chibi idle and two typing phases; unified 2:1 projection.",
+    "seed": null,
+    "seedReason": "Deterministic hand-authored geometry; no stochastic generator.",
+    "referenceImageSha256": null,
+    "referenceUse": "No reference image opened, traced, or copied. Textual art direction from milestone plan section 4 and user brief.",
+    "generatorScriptSha256": "ffe4582e8fb263a15dc8615463ad788699138485ac6d17faf1af962b771b943d"
+  },
+  "atlas": {
+    "image": "own_tycoon_atlas.png",
+    "json": "own_tycoon_atlas.json",
+    "size": [
+      1024,
+      1024
+    ],
+    "paddingPx": 4,
+    "betweenFramesPx": 8,
+    "rotated": false,
+    "trimmed": false,
+    "extruded": false,
+    "samplingAdvice": "Linear or nearest at integer zoom; disable mipmaps for this sample with transparent gutters.",
+    "sha256": "77f54d655c23c0eb3e2a704b3c137e169d1596553ad8848f1832f3f856222dd1"
+  },
+  "frames": {
+    "floor_sage": {
+      "size": [
+        64,
+        32
+      ],
+      "footAnchorPx": [
+        32,
+        16
+      ],
+      "footprintTiles": [
+        1,
+        1
+      ],
+      "notes": "Exact 64x32 diamond; center anchor; no seam outline.",
+      "source": "assets_src/vector/own_tycoon_sample/floor_sage.svg",
+      "sha256": "5f6e7cd1f511eead5dbcd148fca3a3f877b4deb3221c77ede19938c17518a13b"
+    },
+    "wall_cutaway": {
+      "size": [
+        192,
+        160
+      ],
+      "footAnchorPx": [
+        112,
+        142
+      ],
+      "footprintTiles": [
+        3,
+        2
+      ],
+      "notes": "Back corner only; foreground open. Foot anchor is wall corner on floor; height 64px.",
+      "source": "assets_src/vector/own_tycoon_sample/wall_cutaway.svg",
+      "sha256": "a511c45329194fda402f0a79cacff6b011c83abb15b7b52954b17bdf425de7eb"
+    },
+    "desk_wood": {
+      "size": [
+        160,
+        144
+      ],
+      "footAnchorPx": [
+        80,
+        118
+      ],
+      "footprintTiles": [
+        2,
+        1
+      ],
+      "notes": "Monitor, keyboard, coffee mug, drawer pedestal and cable are baked into one prop. Facing +Y.",
+      "source": "assets_src/vector/own_tycoon_sample/desk_wood.svg",
+      "sha256": "aa7a2e181dcfc544a50790a7243443fedc67a174b302f0f54f426573877f1585"
+    },
+    "chair_teal": {
+      "size": [
+        112,
+        128
+      ],
+      "footAnchorPx": [
+        56,
+        104
+      ],
+      "footprintTiles": [
+        1,
+        1
+      ],
+      "notes": "Matching desk orientation; freestanding chair, no character baked in.",
+      "source": "assets_src/vector/own_tycoon_sample/chair_teal.svg",
+      "sha256": "c449c362536efa13ce695df0a88e97c140070148d2eb1b5c8f551e2059bfdf7b"
+    },
+    "ficus": {
+      "size": [
+        112,
+        160
+      ],
+      "footAnchorPx": [
+        56,
+        141
+      ],
+      "footprintTiles": [
+        1,
+        1
+      ],
+      "notes": "Hand-shaped foliage, terracotta banded pot; contact shadow included.",
+      "source": "assets_src/vector/own_tycoon_sample/ficus.svg",
+      "sha256": "58bf54e5e1e908d6e4a2a56ff3a5f284cb31c14fda911070d04b2c7ffed66f8c"
+    },
+    "miro_idle": {
+      "size": [
+        80,
+        112
+      ],
+      "footAnchorPx": [
+        40,
+        103
+      ],
+      "footprintTiles": [
+        1,
+        1
+      ],
+      "notes": "Miro, original fictional developer; seated working silhouette; +X/+Y three-quarter view. Fixed anchor across poses.",
+      "source": "assets_src/vector/own_tycoon_sample/miro_idle.svg",
+      "sha256": "6447ee8f557f3b6cef91b7813525916d9db827413176e01ecf905be49fd32edf"
+    },
+    "miro_typing_01": {
+      "size": [
+        80,
+        112
+      ],
+      "footAnchorPx": [
+        40,
+        103
+      ],
+      "footprintTiles": [
+        1,
+        1
+      ],
+      "notes": "Miro, original fictional developer; seated working silhouette; +X/+Y three-quarter view. Fixed anchor across poses.",
+      "source": "assets_src/vector/own_tycoon_sample/miro_typing_01.svg",
+      "sha256": "60f2ba337e0b845d351e261e238de54531745996c33770ba0897a102075097db"
+    },
+    "miro_typing_02": {
+      "size": [
+        80,
+        112
+      ],
+      "footAnchorPx": [
+        40,
+        103
+      ],
+      "footprintTiles": [
+        1,
+        1
+      ],
+      "notes": "Miro, original fictional developer; seated working silhouette; +X/+Y three-quarter view. Fixed anchor across poses.",
+      "source": "assets_src/vector/own_tycoon_sample/miro_typing_02.svg",
+      "sha256": "6e4ce6a4b5eea078b9c2b529a0fdd22301256967b395866a15ddcd3f8fadd9f0"
+    }
+  },
+  "animation": {
+    "idle": {
+      "frames": [
+        "miro_idle"
+      ],
+      "fps": 1
+    },
+    "typing": {
+      "frames": [
+        "miro_typing_01",
+        "miro_typing_02"
+      ],
+      "fps": 6,
+      "loop": true
+    }
+  },
+  "anchorConvention": "footAnchorPx is absolute pixel position within untrimmed source rectangle; Pixi defaultAnchor=footAnchorPx/sourceSize. Floor uses center; furniture uses ground contact/sort point. Draw position equals ground anchor.",
+  "assemblyNotes": [
+    "Each prop has one orientation only; no runtime rotation variants in this sample.",
+    "Character is a seated pose; align ground anchors with chair (slight seat adjustment may be desired during integration).",
+    "Desk is a baked single sprite. Character hands/desk occlusion may require layer splitting in future integration; no canvas change made.",
+    "Contact sheet is an art-direction vignette, not proof of runtime placement or rendering."
+  ],
+  "review": {
+    "visualAcceptance": "PENDING OWNER",
+    "canvasIntegration": "NOT PERFORMED",
+    "fpsContextLossMobile": "NOT TESTED"
+  }
+}
