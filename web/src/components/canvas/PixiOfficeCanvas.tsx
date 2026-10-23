@@ -7,6 +7,13 @@ import {
   TycoonAssetManager,
   type MiroAnimationMode,
 } from './tycoonAssets';
+import {
+  createOfficeRoomLayout,
+  buildPixiRoomScene,
+  hitTestSceneItem,
+  AGENT_CONFIGS,
+  type OfficeRoomLayout,
+} from '../../scene/OfficeRoomScene';
 import './PixiOfficeCanvas.scss';
 
 interface PixiOfficeCanvasProps {
@@ -18,7 +25,12 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
   const controllerRef = useRef<PixiContextLifecycleController | null>(null);
   const setAnimationModeRef = useRef<((mode: MiroAnimationMode) => void) | null>(null);
   const animationModeRef = useRef<MiroAnimationMode>('typing');
+  const rebuildSceneRef = useRef<(() => void) | null>(null);
+  const sceneModeRef = useRef<'room' | 'diorama'>('room');
+  const currentLayoutRef = useRef<OfficeRoomLayout | null>(null);
 
+  const [sceneMode, setSceneMode] = useState<'room' | 'diorama'>('room');
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [initError, setInitError] = useState<string | null>(null);
   const [assetError, setAssetError] = useState<string | null>(null);
   const [isInitializing, setIsInitializing] = useState<boolean>(true);
@@ -26,6 +38,19 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
   const [contextState, setContextState] = useState<ContextRecoveryState>('ready');
   const [contextError, setContextError] = useState<string | null>(null);
   const [animationMode, setAnimationModeState] = useState<MiroAnimationMode>('typing');
+
+  const selectedAgent = AGENT_CONFIGS.find((a) => a.id === selectedAgentId);
+
+  const handleToggleSceneMode = useCallback(() => {
+    setSceneMode((prev) => {
+      const nextMode = prev === 'room' ? 'diorama' : 'room';
+      sceneModeRef.current = nextMode;
+      if (rebuildSceneRef.current) {
+        rebuildSceneRef.current();
+      }
+      return nextMode;
+    });
+  }, []);
 
   const handleToggleAnimation = useCallback(() => {
     setAnimationModeState((prev) => {
@@ -157,28 +182,72 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
             child.destroy({ children: true });
           }
 
-          // Build depth-sorted diorama with atlas floor, wall, ficus, chair, miro, desk
-          const diorama = TycoonAssetManager.buildDiorama(
-            spritesheet,
-            0,
-            0,
-            animationModeRef.current
-          );
+          if (sceneModeRef.current === 'room') {
+            const layout = createOfficeRoomLayout(8, 8, 0, 0);
+            currentLayoutRef.current = layout;
+            const room = buildPixiRoomScene(spritesheet, layout, (agentId) => {
+              setSelectedAgentId(agentId);
+            });
 
-          if (isCancelled) {
-            diorama.rootContainer.destroy({ children: true });
-            return;
+            if (isCancelled) {
+              room.rootContainer.destroy({ children: true });
+              return;
+            }
+
+            setAnimationModeRef.current = (mode) => {
+              for (const ws of layout.workstations) {
+                room.setAgentStatus(ws.agentId, mode === 'typing' ? 'working' : 'idle');
+              }
+            };
+            worldContainer.addChild(room.rootContainer);
+
+            const bounds = room.rootContainer.getLocalBounds();
+            roomBounds = { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
+            fitScene();
+          } else {
+            currentLayoutRef.current = null;
+            // Build depth-sorted diorama with atlas floor, wall, ficus, chair, miro, desk
+            const diorama = TycoonAssetManager.buildDiorama(
+              spritesheet,
+              0,
+              0,
+              animationModeRef.current
+            );
+
+            if (isCancelled) {
+              diorama.rootContainer.destroy({ children: true });
+              return;
+            }
+
+            setAnimationModeRef.current = diorama.setAnimationMode;
+            worldContainer.addChild(diorama.rootContainer);
+
+            // Capture the entire untransformed room, not a tile-grid estimate.
+            // Animation never re-fits the camera.
+            const bounds = diorama.rootContainer.getLocalBounds();
+            roomBounds = { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
+            fitScene();
           }
-
-          setAnimationModeRef.current = diorama.setAnimationMode;
-          worldContainer.addChild(diorama.rootContainer);
-
-          // Capture the entire untransformed room, not a tile-grid estimate.
-          // Animation never re-fits the camera.
-          const bounds = diorama.rootContainer.getLocalBounds();
-          roomBounds = { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
-          fitScene();
         };
+
+        rebuildSceneRef.current = () => {
+          buildScene();
+          if (pixiApp.renderer) {
+            pixiApp.render();
+          }
+        };
+
+        pixiApp.stage.eventMode = 'static';
+        pixiApp.stage.hitArea = pixiApp.screen;
+        pixiApp.stage.on('pointerdown', (event) => {
+          if (sceneModeRef.current === 'room' && currentLayoutRef.current) {
+            const local = worldContainer.toLocal(event.global);
+            const hit = hitTestSceneItem(local.x, local.y, currentLayoutRef.current);
+            if (hit.type === 'agent' && hit.id) {
+              setSelectedAgentId(hit.id);
+            }
+          }
+        });
 
         if (isCancelled) return;
 
@@ -320,25 +389,59 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
               : 'PIXI.JS v8 (WebGL)'}
           </span>
           <span className="sample-review-pill">Sample Art • Pending Review</span>
-          <h1 className="preview-label">Walnut &amp; Sage — 3×3 Diorama</h1>
-          <span className="preview-subtext">(AO-TYCOON-01)</span>
+          <h1 className="preview-label">
+            {sceneMode === 'room' ? 'Walnut & Sage — 8×8 Shared Office' : 'Walnut & Sage — 3×3 Diorama'}
+          </h1>
+          <span className="preview-subtext">({sceneMode === 'room' ? 'AO-TYCOON-04' : 'AO-TYCOON-01'})</span>
         </div>
 
         <div className="preview-metadata">
+          <div className="scene-toggle-group">
+            <button
+              type="button"
+              className={`toggle-mode-btn ${sceneMode === 'room' ? 'active' : ''}`}
+              onClick={handleToggleSceneMode}
+            >
+              8×8 Shared Office
+            </button>
+            <button
+              type="button"
+              className={`toggle-mode-btn ${sceneMode === 'diorama' ? 'active' : ''}`}
+              onClick={handleToggleSceneMode}
+            >
+              3×3 Diorama
+            </button>
+          </div>
+
+          {selectedAgent && (
+            <div className="agent-status-chip">
+              <span className="agent-dot" />
+              <span>Agent: <strong>{selectedAgent.name}</strong> ({selectedAgent.role})</span>
+              <button
+                type="button"
+                className="agent-clear-btn"
+                onClick={() => setSelectedAgentId(null)}
+                title="Deselect agent"
+              >
+                ×
+              </button>
+            </div>
+          )}
+
           <div className="animation-toggle-group">
-            <span className="toggle-label">Miro:</span>
+            <span className="toggle-label">{sceneMode === 'room' ? 'Agents:' : 'Miro:'}</span>
             <button
               type="button"
               className={`toggle-mode-btn ${animationMode === 'idle' ? 'active' : ''}`}
               onClick={handleToggleAnimation}
-              title="Toggle Miro between Idle pose and Typing animation (6 fps)"
+              title="Toggle animation between Idle pose and Typing (6 fps)"
             >
               {animationMode === 'typing' ? 'Typing (6 fps)' : 'Idle'}
             </button>
           </div>
 
           <span className="meta-item">
-            Grid: <strong>3×3 (2:1 Dimetric)</strong>
+            Grid: <strong>{sceneMode === 'room' ? '8×8' : '3×3'} (2:1 Dimetric)</strong>
           </span>
           <span className="meta-item">
             DPI Cap: <strong>2× Max</strong>
