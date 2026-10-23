@@ -25,13 +25,28 @@ import {
 } from '../../grid/footprintEngine';
 import { snapToGrid, isoToScreen, calculateDepthZ } from '../../engine/isometric/isoMath';
 import { fetchCampusGrid, saveCampusGrid } from '../../api/gridPersistence';
+import { AgentInspector } from '../AgentInspector';
+import type { Agent } from '../../types';
 import './PixiOfficeCanvas.scss';
+
+const FALLBACK_AGENTS: Agent[] = AGENT_CONFIGS.map((agent) => ({
+  id: agent.id,
+  profile_name: agent.name,
+  role: agent.role,
+  status: 'idle',
+}));
 
 interface PixiOfficeCanvasProps {
   onClosePreview?: () => void;
+  agents?: Agent[];
+  onOpenWorkflow?: (runId: string, node: string | null) => void;
 }
 
-export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePreview }) => {
+export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({
+  onClosePreview,
+  agents,
+  onOpenWorkflow,
+}) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<PixiContextLifecycleController | null>(null);
   const setAnimationModeRef = useRef<((mode: MiroAnimationMode) => void) | null>(null);
@@ -67,7 +82,8 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
   const placedFurnitureRef = useRef<PlacedFurnitureItem[]>([]);
   placedFurnitureRef.current = placedFurniture;
 
-  const selectedAgent = AGENT_CONFIGS.find((a) => a.id === selectedAgentId);
+  const effectiveAgents = agents || FALLBACK_AGENTS;
+  const selectedAgent = effectiveAgents.find((a) => a.id === selectedAgentId);
 
   const handleToggleSceneMode = useCallback(() => {
     setSceneMode((prev) => {
@@ -523,7 +539,7 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
           {selectedAgent && (
             <div className="agent-status-chip">
               <span className="agent-dot" />
-              <span>Agent: <strong>{selectedAgent.name}</strong> ({selectedAgent.role})</span>
+              <span>Agent: <strong>{selectedAgent.profile_name || (selectedAgent as any).name || selectedAgent.id}</strong> ({selectedAgent.role})</span>
               <button
                 type="button"
                 className="agent-clear-btn"
@@ -554,14 +570,6 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
             DPI Cap: <strong>2× Max</strong>
           </span>
 
-           <button
-             type="button"
-             className={`toggle-mode-btn ${isEditMode ? 'active' : ''}`}
-             onClick={() => setIsEditMode((prev) => !prev)}
-             title="Toggle Furniture Editor Mode"
-           >
-             {isEditMode ? 'Exit Editor' : 'Edit Furniture'}
-           </button>
           {onClosePreview && (
             <button
               type="button"
@@ -690,20 +698,13 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
         <div className="hud-stat">Art: <span>Walnut & Sage (Sample)</span></div>
       </footer>
 
-       {isEditMode && (
-         <FurnitureToolbar
-           selectedDefId={selectedDefId}
-           rotation={furnitureRotation}
-           isDeleteMode={isDeleteMode}
-           onSelectDef={(defId) => {
-             setSelectedDefId(defId);
-             setIsDeleteMode(false);
-           }}
-           onRotate={() => setFurnitureRotation((r) => getNextRotation(r))}
-           onToggleDelete={() => setIsDeleteMode((prev) => !prev)}
-           onClose={() => setIsEditMode(false)}
-         />
-       )}
-      </section>
+      {selectedAgent && (
+        <AgentInspector
+          agent={selectedAgent}
+          onClose={() => setSelectedAgentId(null)}
+          onOpenWorkflow={(runId, node) => onOpenWorkflow?.(runId, node)}
+        />
+      )}
+    </section>
   );
 };
