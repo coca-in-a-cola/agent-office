@@ -1,7 +1,7 @@
 {
   "status": "PASS",
-  "frames": 8,
-  "svgSources": 9,
+  "frames": 9,
+  "svgSources": 10,
   "atlas": [
     1024,
     1024
@@ -19,7 +19,7 @@
     "nonempty alpha bounds + no source clipping (floor edge exception)",
     "SVG XML + dimensions + SHA256",
     "foot anchors + fixed animation registration",
-    "different pixel content in all 8 frames",
+    "different pixel content in all 9 frames",
     "animation references",
     "atlas provenance checksum"
   ],
@@ -46,30 +46,30 @@
       "frame": {
         "x": 76,
         "y": 4,
-        "w": 192,
+        "w": 224,
         "h": 160
       },
       "alphaBounds": [
-        15,
-        25,
-        177,
-        148
+        11,
+        11,
+        213,
+        137
       ],
       "footAnchorPx": [
         112,
-        142
+        88
       ]
     },
     "desk_wood": {
       "frame": {
-        "x": 276,
+        "x": 308,
         "y": 4,
         "w": 160,
         "h": 144
       },
       "alphaBounds": [
         22,
-        29,
+        42,
         138,
         134
       ],
@@ -78,18 +78,36 @@
         118
       ]
     },
+    "desk_front": {
+      "frame": {
+        "x": 476,
+        "y": 4,
+        "w": 160,
+        "h": 144
+      },
+      "alphaBounds": [
+        31,
+        71,
+        129,
+        111
+      ],
+      "footAnchorPx": [
+        80,
+        118
+      ]
+    },
     "chair_teal": {
       "frame": {
-        "x": 444,
+        "x": 644,
         "y": 4,
         "w": 112,
         "h": 128
       },
       "alphaBounds": [
-        24,
-        23,
-        88,
-        117
+        30,
+        45,
+        77,
+        115
       ],
       "footAnchorPx": [
         56,
@@ -98,16 +116,16 @@
     },
     "ficus": {
       "frame": {
-        "x": 564,
+        "x": 764,
         "y": 4,
         "w": 112,
         "h": 160
       },
       "alphaBounds": [
-        5,
-        12,
-        98,
-        152
+        32,
+        81,
+        76,
+        147
       ],
       "footAnchorPx": [
         56,
@@ -116,16 +134,16 @@
     },
     "miro_idle": {
       "frame": {
-        "x": 684,
+        "x": 884,
         "y": 4,
         "w": 80,
         "h": 112
       },
       "alphaBounds": [
-        16,
-        5,
-        65,
-        108
+        23,
+        32,
+        68,
+        111
       ],
       "footAnchorPx": [
         40,
@@ -134,16 +152,16 @@
     },
     "miro_typing_01": {
       "frame": {
-        "x": 772,
-        "y": 4,
+        "x": 4,
+        "y": 172,
         "w": 80,
         "h": 112
       },
       "alphaBounds": [
-        16,
-        5,
-        78,
-        108
+        23,
+        32,
+        74,
+        111
       ],
       "footAnchorPx": [
         40,
@@ -152,16 +170,16 @@
     },
     "miro_typing_02": {
       "frame": {
-        "x": 860,
-        "y": 4,
+        "x": 92,
+        "y": 172,
         "w": 80,
         "h": 112
       },
       "alphaBounds": [
-        16,
-        5,
-        78,
-        108
+        23,
+        32,
+        74,
+        111
       ],
       "footAnchorPx": [
         40,
@@ -169,6 +187,6 @@
       ]
     }
   },
-  "runtimePixiParse": "NOT RUN: JS runtime absent; structural Pixi spritesheet fields checked",
+  "runtimePixiParse": "NOT RUN here: standalone raster/source validator; Bun integration/geometry suites run separately. WebGL gate pending.",
   "visualAcceptance": "PENDING OWNER"
 }

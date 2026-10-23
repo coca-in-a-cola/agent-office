@@ -1,7 +1,7 @@
 {
   "id": "AO-TYCOON-01-own-tycoon-sample",
   "title": "Walnut & Sage",
-  "createdUtc": "2026-10-23T16:14:25.929695+00:00",
+  "createdUtc": "2026-10-23T20:38:50.242891+00:00",
   "projection": {
     "type": "2:1 dimetric",
     "tileSize": [
@@ -14,12 +14,12 @@
     "author": "Artist-2D / OpenAI gpt-6.1-sol",
     "method": "Original hand-authored SVG geometry, Python art-export script, local system librsvg + Cairo; no external artwork or image generator.",
     "model": "gpt-6.1-sol (SVG authoring, not image synthesis)",
-    "prompt": "AO-TYCOON-01: original cozy Game Dev Tycoon homage; sage 64x32 floor, cutaway wall, warm wooden desk with monitor and mug, chair, ficus, expressive chibi idle and two typing phases; unified 2:1 projection.",
+    "prompt": "AO01 local hands/keyboard/under-desk polish only: two continuous shoulder-elbow-forearm-cuff-skin-hand chains over a dark keyboard with three regular key rows; alternating finger presses in two phases, distinct resting idle; separate trouser/shoe silhouettes and lighter chair base with open gaps and soft contact shadows. Preserve accepted walls, floor, ficus scale, face/glasses and production layout. Offline atlas composite, not WebGL.",
     "seed": null,
     "seedReason": "Deterministic hand-authored geometry; no stochastic generator.",
-    "referenceImageSha256": null,
-    "referenceUse": "No reference image opened, traced, or copied. Textual art direction from milestone plan section 4 and user brief.",
-    "generatorScriptSha256": "ffe4582e8fb263a15dc8615463ad788699138485ac6d17faf1af962b771b943d"
+    "referenceImageSha256": "68f0047eda46b2b832dd93e37604f3507f4194bd6075636af8156ec77cb3e154",
+    "referenceUse": "Own pre-polish offline atlas detail inspected via vision_analyze for hands and under-desk defect correction; no external artwork traced. Null seed: deterministic authored SVG geometry.",
+    "generatorScriptSha256": "2ee43508ae59d0a8b4912fb98c26aff8e235e8176531213a42a91ba79f1d9346"
   },
   "atlas": {
     "image": "own_tycoon_atlas.png",
@@ -34,7 +34,7 @@
     "trimmed": false,
     "extruded": false,
     "samplingAdvice": "Linear or nearest at integer zoom; disable mipmaps for this sample with transparent gutters.",
-    "sha256": "77f54d655c23c0eb3e2a704b3c137e169d1596553ad8848f1832f3f856222dd1"
+    "sha256": "ac79984ad298a1ac6b96e41e0d19a9bc65699ea2a0dbea21563f3f82c467b415"
   },
   "frames": {
     "floor_sage": {
@@ -56,20 +56,20 @@
     },
     "wall_cutaway": {
       "size": [
-        192,
+        224,
         160
       ],
       "footAnchorPx": [
         112,
-        142
+        88
       ],
       "footprintTiles": [
         3,
-        2
+        3
       ],
-      "notes": "Back corner only; foreground open. Foot anchor is wall corner on floor; height 64px.",
+      "notes": "Concave interior corner. Foot (112,88) maps to grid back vertex (originX,originY-16); returns end at +/-96,+48; height 72px.",
       "source": "assets_src/vector/own_tycoon_sample/wall_cutaway.svg",
-      "sha256": "a511c45329194fda402f0a79cacff6b011c83abb15b7b52954b17bdf425de7eb"
+      "sha256": "950f7b5d6d0af90186a0aa45386a43c4b5d42b86684a220c6772862a2eca0afc"
     },
     "desk_wood": {
       "size": [
@@ -86,7 +86,24 @@
       ],
       "notes": "Monitor, keyboard, coffee mug, drawer pedestal and cable are baked into one prop. Facing +Y.",
       "source": "assets_src/vector/own_tycoon_sample/desk_wood.svg",
-      "sha256": "aa7a2e181dcfc544a50790a7243443fedc67a174b302f0f54f426573877f1585"
+      "sha256": "3048d22ae44480806d641afb25eadbc2e70fccbfd2d8d6c80703bab7a55fef50"
+    },
+    "desk_front": {
+      "size": [
+        160,
+        144
+      ],
+      "footAnchorPx": [
+        80,
+        118
+      ],
+      "footprintTiles": [
+        2,
+        1
+      ],
+      "notes": "Foreground apron only; exact shared desk anchor, masks lap below hands, not face or keyboard.",
+      "source": "assets_src/vector/own_tycoon_sample/desk_front.svg",
+      "sha256": "509fde2435fdb9ff2c53c540803d4ee6810bcf0ef0f8bc998c374e431fa17f11"
     },
     "chair_teal": {
       "size": [
@@ -101,9 +118,9 @@
         1,
         1
       ],
-      "notes": "Matching desk orientation; freestanding chair, no character baked in.",
+      "notes": "Unified human scale; chair and seated character share ground registration.",
       "source": "assets_src/vector/own_tycoon_sample/chair_teal.svg",
-      "sha256": "c449c362536efa13ce695df0a88e97c140070148d2eb1b5c8f551e2059bfdf7b"
+      "sha256": "c4d1024085b388748bb59321eafb4fe141e4246f9349dc22a15b554a337a291f"
     },
     "ficus": {
       "size": [
@@ -118,9 +135,9 @@
         1,
         1
       ],
-      "notes": "Hand-shaped foliage, terracotta banded pot; contact shadow included.",
+      "notes": "Subordinate floor plant; 0.46 authored geometry scale, runtime scale 1.",
       "source": "assets_src/vector/own_tycoon_sample/ficus.svg",
-      "sha256": "58bf54e5e1e908d6e4a2a56ff3a5f284cb31c14fda911070d04b2c7ffed66f8c"
+      "sha256": "20594b56b036f1b0ee3c22c2cc1f88019d44fd4e311fd197176e924ed28b74db"
     },
     "miro_idle": {
       "size": [
@@ -137,7 +154,7 @@
       ],
       "notes": "Miro, original fictional developer; seated working silhouette; +X/+Y three-quarter view. Fixed anchor across poses.",
       "source": "assets_src/vector/own_tycoon_sample/miro_idle.svg",
-      "sha256": "6447ee8f557f3b6cef91b7813525916d9db827413176e01ecf905be49fd32edf"
+      "sha256": "d2c2c73de0ce40e0bd81325cb464c748f693970237b2102aa264d4c572a792ba"
     },
     "miro_typing_01": {
       "size": [
@@ -154,7 +171,7 @@
       ],
       "notes": "Miro, original fictional developer; seated working silhouette; +X/+Y three-quarter view. Fixed anchor across poses.",
       "source": "assets_src/vector/own_tycoon_sample/miro_typing_01.svg",
-      "sha256": "60f2ba337e0b845d351e261e238de54531745996c33770ba0897a102075097db"
+      "sha256": "a7444e6e7c2686234543e4386bf9b6e4e9e9cafd091e29233ec9e0199349fb57"
     },
     "miro_typing_02": {
       "size": [
@@ -171,7 +188,7 @@
       ],
       "notes": "Miro, original fictional developer; seated working silhouette; +X/+Y three-quarter view. Fixed anchor across poses.",
       "source": "assets_src/vector/own_tycoon_sample/miro_typing_02.svg",
-      "sha256": "6e4ce6a4b5eea078b9c2b529a0fdd22301256967b395866a15ddcd3f8fadd9f0"
+      "sha256": "32df0417cb52dd52ec04fd003eed946bf40e67ad5fc9c9a8fe6881ce99dc8b82"
     }
   },
   "animation": {
@@ -192,14 +209,17 @@
   },
   "anchorConvention": "footAnchorPx is absolute pixel position within untrimmed source rectangle; Pixi defaultAnchor=footAnchorPx/sourceSize. Floor uses center; furniture uses ground contact/sort point. Draw position equals ground anchor.",
   "assemblyNotes": [
-    "Each prop has one orientation only; no runtime rotation variants in this sample.",
-    "Character is a seated pose; align ground anchors with chair (slight seat adjustment may be desired during integration).",
-    "Desk is a baked single sprite. Character hands/desk occlusion may require layer splitting in future integration; no canvas change made.",
-    "Contact sheet is an art-direction vignette, not proof of runtime placement or rendering."
+    "Runtime scale is 1 for all frames; scene may be uniformly enlarged for inspection.",
+    "3x3 floor uses 64x32 frames with center anchor and 32/16 steps.",
+    "Concave wall foot (112,88) maps to originX,originY-16; both 96x48 returns align with full back boundaries.",
+    "Desk desktop z240, Miro z250, foreground apron z300; apron and desktop share anchor (80,118).",
+    "Chair and seated Miro share ground position (0.35,1.15).",
+    "Ficus is authored at 0.46 of former geometry about its ground anchor; chair and Miro at 0.72.",
+    "Contact vignette reads production calculateDioramaLayout; artifacts/reproduce_layout.py crops the actual runtime atlas. Neither is a WebGL screenshot."
   ],
   "review": {
     "visualAcceptance": "PENDING OWNER",
-    "canvasIntegration": "NOT PERFORMED",
+    "canvasIntegration": "Production layout and split apron updated in tycoonAssets.ts; offline atlas composite inspected; WebGL gate pending.",
     "fpsContextLossMobile": "NOT TESTED"
   }
 }
