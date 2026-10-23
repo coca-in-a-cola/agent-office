@@ -37,6 +37,7 @@ export interface TycoonDioramaLayout {
   chair: DioramaNodeInfo;
   miro: DioramaNodeInfo;
   desk: DioramaNodeInfo;
+  deskFront: DioramaNodeInfo;
 }
 
 /**
@@ -48,11 +49,10 @@ export interface TycoonDioramaLayout {
  *
  * Layout arrangement:
  *   - 3x3 floor tiles (gx in 0..2, gy in 0..2)
- *   - Wall cutaway (footprint 3x2, anchored at the back room apex)
- *   - Ficus at back corner (gx: 2, gy: 0.1)
- *   - Chair at (gx: 0.85, gy: 1.05)
- *   - Miro seated at (gx: 0.85, gy: 1.15) — aligned with chair, in front of backrest
- *   - Desk at (gx: 1.1, gy: 1.45) — desk edge sits over Miro's hands/lap, face stays clear
+ *   - Concave wall returns span the two complete 3-tile back edges.
+ *   - Ficus at (2, 0.05), with subordinate authored foliage scale
+ *   - Chair and Miro share (0.35, 1.15), in front of the backrest
+ *   - 2x1 desk at (1.05, 1.45); hands above desktop, lap behind apron
  */
 export function calculateDioramaLayout(originX: number, originY: number): TycoonDioramaLayout {
   const HALF_W = 32;
@@ -79,23 +79,23 @@ export function calculateDioramaLayout(originX: number, originY: number): Tycoon
   }
 
   // Wall cutaway: back corner apex of the 3x3 grid is gx=0, gy=0 top vertex (originX, originY - 16)
-  // Wall footAnchorPx is (112, 142) on 192x160; anchor in atlas is (0.5833, 0.8875)
-  // Placing at the back apex aligns the left wall along gy (3 tiles) and right wall along gx (2 tiles)
+  // Interior foot (112,88) on 224x160; both endpoints descend 48px.
+  // This is a concave back corner, not the old convex outer elbow.
   const wall: DioramaNodeInfo = {
     name: 'wall_cutaway',
     screenX: originX,
-    screenY: originY + 16,
+    screenY: originY - 16,
     zIndex: 100,
-    anchor: { x: 112 / 192, y: 142 / 160 },
+    anchor: { x: 112 / 224, y: 88 / 160 },
   };
 
-  // Ficus: placed near back-right corner of the room (around gx: 2.1, gy: 0.2)
-  const ficusScreenX = originX + (2.05 - 0.2) * HALF_W;
-  const ficusScreenY = originY + (2.05 + 0.2) * HALF_H;
+  // Ficus: separated from the face and monitor near the back-right boundary.
+  const ficusScreenX = originX + (2.0 - 0.05) * HALF_W;
+  const ficusScreenY = originY + (2.0 + 0.05) * HALF_H;
   const ficus: DioramaNodeInfo = {
     name: 'ficus',
-    gridX: 2.05,
-    gridY: 0.2,
+    gridX: 2.0,
+    gridY: 0.05,
     screenX: ficusScreenX,
     screenY: ficusScreenY,
     zIndex: 150,
@@ -103,8 +103,8 @@ export function calculateDioramaLayout(originX: number, originY: number): Tycoon
   };
 
   // Chair: workspace seating behind desk
-  const chairGX = 0.85;
-  const chairGY = 1.0;
+  const chairGX = 0.35;
+  const chairGY = 1.15;
   const chairScreenX = originX + (chairGX - chairGY) * HALF_W;
   const chairScreenY = originY + (chairGX + chairGY) * HALF_H;
   const chair: DioramaNodeInfo = {
@@ -117,9 +117,9 @@ export function calculateDioramaLayout(originX: number, originY: number): Tycoon
     anchor: { x: 56 / 112, y: 104 / 128 },
   };
 
-  // Miro: sits in the chair, slightly forward in Y so chair backrest is behind Miro
-  const miroGX = 0.85;
-  const miroGY = 1.08;
+  // Miro: same ground registration as the chair, drawn in front of backrest.
+  const miroGX = 0.35;
+  const miroGY = 1.15;
   const miroScreenX = originX + (miroGX - miroGY) * HALF_W;
   const miroScreenY = originY + (miroGX + miroGY) * HALF_H;
   const miro: DioramaNodeInfo = {
@@ -132,10 +132,8 @@ export function calculateDioramaLayout(originX: number, originY: number): Tycoon
     anchor: { x: 40 / 80, y: 103 / 112 },
   };
 
-  // Desk: placed in front of Miro, centered on tile (1.1, 1.45)
-  // Desk footprint is 2x1 tiles. Desk surface naturally overlaps Miro's hands/lap
-  // while Miro's head and monitor stay unobscured.
-  const deskGX = 1.1;
+  // Exact 2x1 desktop: behind the hands; separate foreground apron masks lap.
+  const deskGX = 1.05;
   const deskGY = 1.45;
   const deskScreenX = originX + (deskGX - deskGY) * HALF_W;
   const deskScreenY = originY + (deskGX + deskGY) * HALF_H;
@@ -145,7 +143,7 @@ export function calculateDioramaLayout(originX: number, originY: number): Tycoon
     gridY: deskGY,
     screenX: deskScreenX,
     screenY: deskScreenY,
-    zIndex: 300,
+    zIndex: 240,
     anchor: { x: 80 / 160, y: 118 / 144 },
   };
 
@@ -158,6 +156,7 @@ export function calculateDioramaLayout(originX: number, originY: number): Tycoon
     chair,
     miro,
     desk,
+    deskFront: { ...desk, name: 'desk_front', zIndex: 300 },
   };
 }
 
@@ -366,7 +365,7 @@ export class TycoonAssetManager {
       }
     };
 
-    // 6. Desk (layered over Miro's hands/lap)
+    // 6. Desktop behind hands; the separate apron masks the lap only.
     const deskTexture = sheet.textures['desk_wood'];
     if (deskTexture) {
       const deskSprite = new Sprite(deskTexture);
@@ -374,6 +373,15 @@ export class TycoonAssetManager {
       deskSprite.position.set(layout.desk.screenX, layout.desk.screenY);
       deskSprite.zIndex = layout.desk.zIndex;
       rootContainer.addChild(deskSprite);
+    }
+
+    const frontTexture = sheet.textures['desk_front'];
+    if (frontTexture) {
+      const front = new Sprite(frontTexture);
+      front.anchor.set(layout.deskFront.anchor.x, layout.deskFront.anchor.y);
+      front.position.set(layout.deskFront.screenX, layout.deskFront.screenY);
+      front.zIndex = layout.deskFront.zIndex;
+      rootContainer.addChild(front);
     }
 
     return {

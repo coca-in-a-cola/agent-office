@@ -47,7 +47,7 @@ manifest=json.loads((OUT/'own_tycoon_manifest.json').read_text())
 w,h,bpp,rows=decode(OUT/'own_tycoon_atlas.png')
 assert (w,h,bpp)==(1024,1024,4)
 assert w&(w-1)==0 and h&(h-1)==0
-expected={'floor_sage','wall_cutaway','desk_wood','chair_teal','ficus','miro_idle','miro_typing_01','miro_typing_02'}
+expected={'floor_sage','wall_cutaway','desk_wood','desk_front','chair_teal','ficus','miro_idle','miro_typing_01','miro_typing_02'}
 assert set(sheet['frames'])==set(manifest['frames'])==expected
 rects=[]; digests={}; checks={}
 for name,frame in sheet['frames'].items():
@@ -71,7 +71,7 @@ for name,frame in sheet['frames'].items():
     bbox=[min(v[0] for v in occupied),min(v[1] for v in occupied),max(v[0] for v in occupied)+1,max(v[1] for v in occupied)+1]
     if name!='floor_sage': assert bbox[0]>0 and bbox[1]>0 and bbox[2]<fw and bbox[3]<fh,'source clipping'
     checks[name]={'frame':f,'alphaBounds':bbox,'footAnchorPx':[ax,ay]}
-assert len(set(digests.values()))==8
+assert len(set(digests.values()))==len(expected)
 assert manifest['frames']['floor_sage']['size']==[64,32]
 for animation,names in sheet['animations'].items():
     assert all(n in expected for n in names)
@@ -84,5 +84,8 @@ cw,ch,_,_=decode(OUT/'own_tycoon_contact_sheet.png')
 assert (cw,ch)==(1600,1260)
 ET.parse(ROOT/'assets_src/vector/own_tycoon_sample/contact_sheet.svg')
 result={'status':'PASS','frames':len(expected),'svgSources':9,'atlas':[w,h],'contactSheet':[cw,ch],'checks':['PNG signature + CRC + zlib scanline decode','RGBA transparency and antialiasing','POT 1024x1024','exact frame names','bounds + non-overlap','nonempty alpha bounds + no source clipping (floor edge exception)','SVG XML + dimensions + SHA256','foot anchors + fixed animation registration','different pixel content in all 8 frames','animation references','atlas provenance checksum'],'frameDetails':checks,'runtimePixiParse':'NOT RUN: JS runtime absent; structural Pixi spritesheet fields checked','visualAcceptance':'PENDING OWNER'}
+result['svgSources']=len(expected)+1
+result['checks']=[s.replace('all 8 frames',f'all {len(expected)} frames') for s in result['checks']]
+result['runtimePixiParse']='NOT RUN here: standalone raster/source validator; Bun integration/geometry suites run separately. WebGL gate pending.'
 (OUT/'own_tycoon_validation.json').write_text(json.dumps(result,indent=2)+'\n')
 print(json.dumps(result,indent=2))

@@ -82,7 +82,7 @@ describe('AO-TYCOON-01: TycoonAssetManager regression suite', () => {
 
     // Miro sits behind desk and in front of chair
     expect(layout.chair.zIndex).toBeLessThan(layout.miro.zIndex);
-    expect(layout.miro.zIndex).toBeLessThan(layout.desk.zIndex);
+    expect(layout.desk.zIndex).toBeLessThan(layout.miro.zIndex);
   });
 
   it('tracks activeConsumers refcount accurately across load and unload', async () => {
