@@ -1,0 +1,174 @@
+{
+  "status": "PASS",
+  "frames": 8,
+  "svgSources": 9,
+  "atlas": [
+    1024,
+    1024
+  ],
+  "contactSheet": [
+    1600,
+    1260
+  ],
+  "checks": [
+    "PNG signature + CRC + zlib scanline decode",
+    "RGBA transparency and antialiasing",
+    "POT 1024x1024",
+    "exact frame names",
+    "bounds + non-overlap",
+    "nonempty alpha bounds + no source clipping (floor edge exception)",
+    "SVG XML + dimensions + SHA256",
+    "foot anchors + fixed animation registration",
+    "different pixel content in all 8 frames",
+    "animation references",
+    "atlas provenance checksum"
+  ],
+  "frameDetails": {
+    "floor_sage": {
+      "frame": {
+        "x": 4,
+        "y": 4,
+        "w": 64,
+        "h": 32
+      },
+      "alphaBounds": [
+        0,
+        0,
+        64,
+        32
+      ],
+      "footAnchorPx": [
+        32,
+        16
+      ]
+    },
+    "wall_cutaway": {
+      "frame": {
+        "x": 76,
+        "y": 4,
+        "w": 192,
+        "h": 160
+      },
+      "alphaBounds": [
+        15,
+        25,
+        177,
+        148
+      ],
+      "footAnchorPx": [
+        112,
+        142
+      ]
+    },
+    "desk_wood": {
+      "frame": {
+        "x": 276,
+        "y": 4,
+        "w": 160,
+        "h": 144
+      },
+      "alphaBounds": [
+        22,
+        29,
+        138,
+        134
+      ],
+      "footAnchorPx": [
+        80,
+        118
+      ]
+    },
+    "chair_teal": {
+      "frame": {
+        "x": 444,
+        "y": 4,
+        "w": 112,
+        "h": 128
+      },
+      "alphaBounds": [
+        24,
+        23,
+        88,
+        117
+      ],
+      "footAnchorPx": [
+        56,
+        104
+      ]
+    },
+    "ficus": {
+      "frame": {
+        "x": 564,
+        "y": 4,
+        "w": 112,
+        "h": 160
+      },
+      "alphaBounds": [
+        5,
+        12,
+        98,
+        152
+      ],
+      "footAnchorPx": [
+        56,
+        141
+      ]
+    },
+    "miro_idle": {
+      "frame": {
+        "x": 684,
+        "y": 4,
+        "w": 80,
+        "h": 112
+      },
+      "alphaBounds": [
+        16,
+        5,
+        65,
+        108
+      ],
+      "footAnchorPx": [
+        40,
+        103
+      ]
+    },
+    "miro_typing_01": {
+      "frame": {
+        "x": 772,
+        "y": 4,
+        "w": 80,
+        "h": 112
+      },
+      "alphaBounds": [
+        16,
+        5,
+        78,
+        108
+      ],
+      "footAnchorPx": [
+        40,
+        103
+      ]
+    },
+    "miro_typing_02": {
+      "frame": {
+        "x": 860,
+        "y": 4,
+        "w": 80,
+        "h": 112
+      },
+      "alphaBounds": [
+        16,
+        5,
+        78,
+        108
+      ],
+      "footAnchorPx": [
+        40,
+        103
+      ]
+    }
+  },
+  "runtimePixiParse": "NOT RUN: JS runtime absent; structural Pixi spritesheet fields checked",
+  "visualAcceptance": "PENDING OWNER"
+}
