@@ -79,7 +79,7 @@ const FALLBACK_STATE: OfficeState = {
   },
 };
 
-export const App: React.FC = () => {
+const MainOfficeApp: React.FC = () => {
   const [state, setState] = useState<OfficeState>(FALLBACK_STATE);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>('coder');
   const [isLive, setIsLive] = useState<boolean>(false);
@@ -223,4 +223,54 @@ export const App: React.FC = () => {
       {view === 'tycoon' && isInspectorOpen && selectedAgent && <AgentInspector agent={selectedAgent} onClose={closeInspector} onOpenWorkflow={openInStudio} />}
     </div>
   );
+};
+
+const PixiOfficeCanvas = React.lazy(() =>
+  import('./components/canvas/PixiOfficeCanvas').then((m) => ({ default: m.PixiOfficeCanvas }))
+);
+
+function checkIsTycoonPreview(): boolean {
+  if (typeof window === 'undefined') return false;
+  return new URLSearchParams(window.location.search).get('tycoonPreview') === '1';
+}
+
+export const App: React.FC = () => {
+  const [isPreview, setIsPreview] = useState<boolean>(checkIsTycoonPreview);
+
+  const handleClosePreview = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('tycoonPreview');
+      const nextSearch = url.searchParams.toString();
+      const nextUrl = url.pathname + (nextSearch ? `?${nextSearch}` : '') + url.hash;
+      window.history.replaceState(null, '', nextUrl);
+    }
+    setIsPreview(false);
+  }, []);
+
+  if (isPreview) {
+    return (
+      <React.Suspense
+        fallback={
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              height: '100vh',
+              background: '#0b0f19',
+              color: '#94a3b8',
+              fontFamily: 'monospace',
+            }}
+          >
+            Loading Tycoon Preview...
+          </div>
+        }
+      >
+        <PixiOfficeCanvas onClosePreview={handleClosePreview} />
+      </React.Suspense>
+    );
+  }
+
+  return <MainOfficeApp />;
 };
