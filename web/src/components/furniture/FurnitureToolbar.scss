@@ -1,0 +1,139 @@
+.furniture-toolbar {
+  position: absolute;
+  bottom: 1.25rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.6rem 1rem;
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(51, 65, 85, 0.8);
+  border-radius: 8px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+  z-index: 20;
+  max-width: 95vw;
+
+  .toolbar-section {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .section-title {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .item-buttons-group {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .furniture-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0.35rem 0.65rem;
+    background: rgba(30, 41, 59, 0.8);
+    border: 1px solid rgba(71, 85, 105, 0.6);
+    border-radius: 6px;
+    color: #e2e8f0;
+    cursor: pointer;
+    transition: all 0.15s ease;
+
+    .item-name {
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+
+    .item-size {
+      font-size: 0.65rem;
+      color: #64748b;
+    }
+
+    &:hover {
+      background: rgba(51, 65, 85, 0.8);
+      border-color: #38bdf8;
+    }
+
+    &.active {
+      background: rgba(14, 165, 233, 0.25);
+      border-color: #38bdf8;
+      color: #38bdf8;
+
+      .item-size {
+        color: #7dd3fc;
+      }
+    }
+  }
+
+  .controls-section {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    border-left: 1px solid rgba(71, 85, 105, 0.5);
+    padding-left: 0.75rem;
+  }
+
+  .control-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.4rem 0.75rem;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    border: 1px solid transparent;
+
+    &.rotate-btn {
+      background: rgba(30, 41, 59, 0.8);
+      border-color: rgba(71, 85, 105, 0.6);
+      color: #f1f5f9;
+
+      .rotation-badge {
+        padding: 0.1rem 0.35rem;
+        background: #0284c7;
+        color: #fff;
+        border-radius: 4px;
+        font-size: 0.65rem;
+      }
+
+      &:hover {
+        background: rgba(51, 65, 85, 0.8);
+      }
+    }
+
+    &.delete-btn {
+      background: rgba(239, 68, 68, 0.15);
+      border-color: rgba(239, 68, 68, 0.3);
+      color: #fca5a5;
+
+      &:hover {
+        background: rgba(239, 68, 68, 0.25);
+      }
+
+      &.active {
+        background: #ef4444;
+        color: #fff;
+      }
+    }
+
+    &.done-btn {
+      background: #10b981;
+      color: #fff;
+
+      &:hover {
+        background: #059669;
+      }
+    }
+  }
+}

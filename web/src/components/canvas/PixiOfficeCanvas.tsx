@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Application, Container } from 'pixi.js';
+import { Application, Container, Sprite } from 'pixi.js';
 import { fitBounds, type SceneBounds } from './fitBounds';
 import { PixiContextLifecycleController, type ContextRecoveryState } from './pixiContextLifecycle';
 import { TouchController } from '../../engine/input/TouchController';
@@ -14,6 +14,16 @@ import {
   AGENT_CONFIGS,
   type OfficeRoomLayout,
 } from '../../scene/OfficeRoomScene';
+import { FurnitureToolbar } from '../furniture/FurnitureToolbar';
+import {
+  FURNITURE_CATALOG,
+  canPlaceFurniture,
+  findPlacedFurnitureAt,
+  getNextRotation,
+  type PlacedFurnitureItem,
+  type FurnitureRotation,
+} from '../../grid/footprintEngine';
+import { snapToGrid, isoToScreen, calculateDepthZ } from '../../engine/isometric/isoMath';
 import './PixiOfficeCanvas.scss';
 
 interface PixiOfficeCanvasProps {
@@ -38,6 +48,23 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
   const [contextState, setContextState] = useState<ContextRecoveryState>('ready');
   const [contextError, setContextError] = useState<string | null>(null);
   const [animationMode, setAnimationModeState] = useState<MiroAnimationMode>('typing');
+
+  const [isEditMode, setIsEditMode] = useState<boolean>(false);
+  const [selectedDefId, setSelectedDefId] = useState<string | null>('desk_wood');
+  const [furnitureRotation, setFurnitureRotation] = useState<FurnitureRotation>(0);
+  const [isDeleteMode, setIsDeleteMode] = useState<boolean>(false);
+  const [placedFurniture, setPlacedFurniture] = useState<PlacedFurnitureItem[]>([]);
+
+  const isEditModeRef = useRef(false);
+  isEditModeRef.current = isEditMode;
+  const selectedDefIdRef = useRef<string | null>('desk_wood');
+  selectedDefIdRef.current = selectedDefId;
+  const furnitureRotationRef = useRef<FurnitureRotation>(0);
+  furnitureRotationRef.current = furnitureRotation;
+  const isDeleteModeRef = useRef(false);
+  isDeleteModeRef.current = isDeleteMode;
+  const placedFurnitureRef = useRef<PlacedFurnitureItem[]>([]);
+  placedFurnitureRef.current = placedFurniture;
 
   const selectedAgent = AGENT_CONFIGS.find((a) => a.id === selectedAgentId);
 
@@ -131,6 +158,52 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
             worldContainer.position.set(transform.x, transform.y);
             worldContainer.scale.set(transform.scale);
           },
+          onTap: (tap) => {
+            if (isCancelled) return;
+            const worldPos = worldContainer.position;
+            const worldScale = worldContainer.scale.x || 1;
+            const localX = (tap.screenX - worldPos.x) / worldScale;
+            const localY = (tap.screenY - worldPos.y) / worldScale;
+            const snapped = snapToGrid(localX, localY);
+
+            if (isEditModeRef.current) {
+              if (isDeleteModeRef.current) {
+                const existing = findPlacedFurnitureAt(snapped.gx, snapped.gy, placedFurnitureRef.current);
+                if (existing) {
+                  setPlacedFurniture((prev) => prev.filter((p) => p.id !== existing.id));
+                  if (rebuildSceneRef.current) rebuildSceneRef.current();
+                }
+              } else if (selectedDefIdRef.current) {
+                const def = FURNITURE_CATALOG[selectedDefIdRef.current];
+                if (def) {
+                  const check = canPlaceFurniture(
+                    snapped.gx,
+                    snapped.gy,
+                    def,
+                    furnitureRotationRef.current,
+                    { width: 8, height: 8 },
+                    placedFurnitureRef.current
+                  );
+                  if (check.valid) {
+                    const newItem: PlacedFurnitureItem = {
+                      id: 'furn_' + Date.now(),
+                      defId: selectedDefIdRef.current,
+                      gx: snapped.gx,
+                      gy: snapped.gy,
+                      rotation: furnitureRotationRef.current,
+                    };
+                    setPlacedFurniture((prev) => [...prev, newItem]);
+                    if (rebuildSceneRef.current) rebuildSceneRef.current();
+                  }
+                }
+              }
+            } else if (currentLayoutRef.current) {
+              const hit = hitTestSceneItem(localX, localY, currentLayoutRef.current);
+              if (hit.type === 'agent' && hit.id) {
+                setSelectedAgentId(hit.id);
+              }
+            }
+          },
         });
         if (containerRef.current) {
           touchController.attach(containerRef.current);
@@ -201,6 +274,19 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
             };
             worldContainer.addChild(room.rootContainer);
 
+            // Render dynamically placed furniture items
+            for (const item of placedFurnitureRef.current) {
+              const def = FURNITURE_CATALOG[item.defId];
+              if (!def) continue;
+              const texKey = def.textureKey && spritesheet.textures[def.textureKey] ? def.textureKey : 'desk_wood';
+              const furnSprite = new Sprite(spritesheet.textures[texKey]);
+              furnSprite.anchor.set(0.5, 0.8);
+              const { screenX, screenY } = isoToScreen(item.gx, item.gy);
+              furnSprite.position.set(screenX, screenY);
+              furnSprite.zIndex = calculateDepthZ(item.gx, item.gy, 35);
+              worldContainer.addChild(furnSprite);
+            }
+
             const bounds = room.rootContainer.getLocalBounds();
             roomBounds = { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
             fitScene();
@@ -240,7 +326,7 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
         pixiApp.stage.eventMode = 'static';
         pixiApp.stage.hitArea = pixiApp.screen;
         pixiApp.stage.on('pointerdown', (event) => {
-          if (sceneModeRef.current === 'room' && currentLayoutRef.current) {
+          if (!isEditModeRef.current && sceneModeRef.current === 'room' && currentLayoutRef.current) {
             const local = worldContainer.toLocal(event.global);
             const hit = hitTestSceneItem(local.x, local.y, currentLayoutRef.current);
             if (hit.type === 'agent' && hit.id) {
@@ -413,6 +499,15 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
             </button>
           </div>
 
+          <button
+            type="button"
+            className={`toggle-mode-btn ${isEditMode ? 'active' : ''}`}
+            onClick={() => setIsEditMode((prev) => !prev)}
+            title="Toggle Furniture Editor Mode"
+          >
+            {isEditMode ? 'Exit Editor' : 'Edit Furniture'}
+          </button>
+
           {selectedAgent && (
             <div className="agent-status-chip">
               <span className="agent-dot" />
@@ -446,6 +541,15 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
           <span className="meta-item">
             DPI Cap: <strong>2× Max</strong>
           </span>
+
+           <button
+             type="button"
+             className={`toggle-mode-btn ${isEditMode ? 'active' : ''}`}
+             onClick={() => setIsEditMode((prev) => !prev)}
+             title="Toggle Furniture Editor Mode"
+           >
+             {isEditMode ? 'Exit Editor' : 'Edit Furniture'}
+           </button>
           {onClosePreview && (
             <button
               type="button"
@@ -552,6 +656,20 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
         </div>
       )}
 
+      {isEditMode && (
+        <FurnitureToolbar
+          selectedDefId={selectedDefId}
+          rotation={furnitureRotation}
+          isDeleteMode={isDeleteMode}
+          onSelectDef={(defId) => {
+            setSelectedDefId(defId);
+            setIsDeleteMode(false);
+          }}
+          onRotate={() => setFurnitureRotation((r) => getNextRotation(r))}
+          onToggleDelete={() => setIsDeleteMode((prev) => !prev)}
+          onClose={() => setIsEditMode(false)}
+        />
+      )}
       <footer className="pixi-canvas-footer">
         <div className="hud-stat">Renderer: <span>PixiJS v8 (WebGL)</span></div>
         <div className="hud-stat">DPI Ratio: <span>{Math.min(typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1, 2)}x</span></div>
@@ -559,6 +677,21 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
         <div className="hud-stat">Animation: <span>{animationMode.toUpperCase()} (6fps)</span></div>
         <div className="hud-stat">Art: <span>Walnut & Sage (Sample)</span></div>
       </footer>
-    </section>
+
+       {isEditMode && (
+         <FurnitureToolbar
+           selectedDefId={selectedDefId}
+           rotation={furnitureRotation}
+           isDeleteMode={isDeleteMode}
+           onSelectDef={(defId) => {
+             setSelectedDefId(defId);
+             setIsDeleteMode(false);
+           }}
+           onRotate={() => setFurnitureRotation((r) => getNextRotation(r))}
+           onToggleDelete={() => setIsDeleteMode((prev) => !prev)}
+           onClose={() => setIsEditMode(false)}
+         />
+       )}
+      </section>
   );
 };
