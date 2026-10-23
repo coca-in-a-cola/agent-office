@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Application, Container, Text } from 'pixi.js';
+import { Application, Container } from 'pixi.js';
+import { fitBounds, type SceneBounds } from './fitBounds';
 import { PixiContextLifecycleController, type ContextRecoveryState } from './pixiContextLifecycle';
 import {
   TycoonAssetManager,
@@ -15,6 +16,7 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
   const containerRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<PixiContextLifecycleController | null>(null);
   const setAnimationModeRef = useRef<((mode: MiroAnimationMode) => void) | null>(null);
+  const animationModeRef = useRef<MiroAnimationMode>('typing');
 
   const [initError, setInitError] = useState<string | null>(null);
   const [assetError, setAssetError] = useState<string | null>(null);
@@ -27,6 +29,7 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
   const handleToggleAnimation = useCallback(() => {
     setAnimationModeState((prev) => {
       const nextMode: MiroAnimationMode = prev === 'typing' ? 'idle' : 'typing';
+      animationModeRef.current = nextMode;
       if (setAnimationModeRef.current) {
         setAnimationModeRef.current(nextMode);
       }
@@ -72,7 +75,8 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
         // Version-correct PixiJS v8 Application init with explicit WebGL preference
         await pixiApp.init({
           preference: 'webgl',
-          resizeTo: containerRef.current,
+          width: containerRef.current.clientWidth,
+          height: containerRef.current.clientHeight,
           resolution,
           autoDensity: true,
           backgroundColor: 0x0f1d1a, // Sage-dark background matching Walnut & Sage diorama
@@ -118,26 +122,30 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
           return;
         }
 
-        const updateSceneLayout = () => {
+        let roomBounds: SceneBounds | null = null;
+        const fitScene = () => {
+          if (isCancelled || !roomBounds || !containerRef.current) return;
+          const { clientWidth: width, clientHeight: height } = containerRef.current;
+          if (width <= 0 || height <= 0) return;
+          pixiApp.renderer.resize(width, height, Math.min(window.devicePixelRatio || 1, 2));
+          const fit = fitBounds(roomBounds, width, height);
+          worldContainer.scale.set(fit.scale);
+          worldContainer.position.set(fit.x, fit.y);
+        };
+
+        const buildScene = () => {
           if (isCancelled || !pixiApp.renderer || !spritesheet) return;
 
           for (const child of worldContainer.removeChildren()) {
             child.destroy({ children: true });
           }
 
-          const screenW = pixiApp.screen.width;
-          const screenH = pixiApp.screen.height;
-
-          // Center the 3x3 diorama within viewport
-          const originX = Math.round(screenW / 2);
-          const originY = Math.round(screenH / 2 - 30);
-
           // Build depth-sorted diorama with atlas floor, wall, ficus, chair, miro, desk
           const diorama = TycoonAssetManager.buildDiorama(
             spritesheet,
-            originX,
-            originY,
-            animationMode
+            0,
+            0,
+            animationModeRef.current
           );
 
           if (isCancelled) {
@@ -148,25 +156,17 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
           setAnimationModeRef.current = diorama.setAnimationMode;
           worldContainer.addChild(diorama.rootContainer);
 
-          // Technical preview diorama title
-          const titleText = new Text({
-            text: 'WALNUT & SAGE — 3×3 DIORAMA (SAMPLE ART)',
-            style: {
-              fontFamily: 'monospace',
-              fontSize: 11,
-              fill: 0xa9bda7,
-              letterSpacing: 1,
-            },
-          });
-          titleText.anchor.set(0.5, 1);
-          titleText.position.set(originX, originY - 70);
-          worldContainer.addChild(titleText);
+          // Capture the entire untransformed room, not a tile-grid estimate.
+          // Animation never re-fits the camera.
+          const bounds = diorama.rootContainer.getLocalBounds();
+          roomBounds = { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
+          fitScene();
         };
 
         if (isCancelled) return;
 
         // Render initial frame
-        updateSceneLayout();
+        buildScene();
         if (pixiApp.renderer) {
           pixiApp.render();
         }
@@ -195,7 +195,7 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
               throw new Error(`Texture atlas recreation failed: ${err?.message || err}`);
             }
 
-            updateSceneLayout();
+            buildScene();
             if (pixiApp.renderer) {
               pixiApp.render();
             }
@@ -221,21 +221,18 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
           return;
         }
 
-        // Handle resize events
-        const handleResize = () => {
-          if (!isCancelled && pixiApp.renderer) {
-            updateSceneLayout();
-          }
-        };
-
-        window.addEventListener('resize', handleResize);
+        // Include flex/header reflow, without rebuilding sprites or restarting animation.
+        const resizeObserver = new ResizeObserver(fitScene);
+        resizeObserver.observe(containerRef.current!);
+        window.addEventListener('resize', fitScene);
 
         if (!isCancelled) {
           setIsInitializing(false);
         }
 
         return () => {
-          window.removeEventListener('resize', handleResize);
+          resizeObserver.disconnect();
+          window.removeEventListener('resize', fitScene);
         };
       } catch (err: any) {
         console.error('Failed to initialize PixiJS application:', err);
@@ -298,7 +295,7 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
               : 'PIXI.JS v8 (WebGL)'}
           </span>
           <span className="sample-review-pill">Sample Art • Pending Review</span>
-          <span className="preview-label">Tycoon Diorama Preview</span>
+          <h1 className="preview-label">Walnut &amp; Sage — 3×3 Diorama</h1>
           <span className="preview-subtext">(AO-TYCOON-01)</span>
         </div>
 
