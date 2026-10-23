@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Application, Container } from 'pixi.js';
 import { fitBounds, type SceneBounds } from './fitBounds';
 import { PixiContextLifecycleController, type ContextRecoveryState } from './pixiContextLifecycle';
+import { TouchController } from '../../engine/input/TouchController';
 import {
   TycoonAssetManager,
   type MiroAnimationMode,
@@ -55,6 +56,7 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
     let app: Application | null = null;
     let isInitialized = false;
     let lifecycleController: PixiContextLifecycleController | null = null;
+    let touchController: TouchController | null = null;
 
     setIsInitializing(true);
     setInitError(null);
@@ -97,6 +99,18 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
         const worldContainer = new Container();
         pixiApp.stage.addChild(worldContainer);
 
+        // Input touch & pointer controller
+        touchController = new TouchController({
+          onTransform: (transform) => {
+            if (isCancelled) return;
+            worldContainer.position.set(transform.x, transform.y);
+            worldContainer.scale.set(transform.scale);
+          },
+        });
+        if (containerRef.current) {
+          touchController.attach(containerRef.current);
+        }
+
         // Load the artist-2d texture atlas with visible error handling
         let spritesheet: any = null;
         try {
@@ -111,6 +125,8 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
         }
 
         if (isCancelled) {
+          touchController?.detach();
+          touchController = null;
           if (app) {
             try {
               app.destroy(true, { children: true });
@@ -131,6 +147,7 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
           const fit = fitBounds(roomBounds, width, height);
           worldContainer.scale.set(fit.scale);
           worldContainer.position.set(fit.x, fit.y);
+          touchController?.setTransform({ x: fit.x, y: fit.y, scale: fit.scale });
         };
 
         const buildScene = () => {
@@ -216,6 +233,8 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
         });
 
         if (isCancelled) {
+          touchController?.detach();
+          touchController = null;
           lifecycleController.detach();
           controllerRef.current = null;
           return;
@@ -231,6 +250,7 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
         }
 
         return () => {
+          touchController?.detach();
           resizeObserver.disconnect();
           window.removeEventListener('resize', fitScene);
         };
@@ -255,6 +275,11 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({ onClosePrevi
       });
 
       // Teardown controller detach BEFORE destroying Pixi application
+      if (touchController) {
+        touchController.detach();
+        touchController = null;
+      }
+
       if (controllerRef.current) {
         controllerRef.current.detach();
         controllerRef.current = null;
