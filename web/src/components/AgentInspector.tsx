@@ -4,6 +4,7 @@ import { Agent } from '../types';
 import { StatusBadge } from './StatusBadge';
 import { WorkflowAssignmentBadge } from './WorkflowAssignmentBadge';
 import { WorkstationMonitor } from './WorkstationMonitor';
+import { EmployeeModelPolicyEditor } from './EmployeeModelPolicyEditor';
 import { SkinCustomizerModal, getAgentSkin } from './character';
 
 interface Props {
@@ -67,7 +68,7 @@ export function AgentInspector({ agent, onClose, onOpenWorkflow }: Props) {
               ))}
             </section>
           )}
-          <section className="inspector-card"><h3>Model & provider</h3><code>{agent.current_model || 'unknown'}</code></section>
+          <EmployeeModelPolicyEditor agent={agent} />
           <section className="inspector-card"><h3>Active task snapshot</h3>
             {agent.active_task ? <>
               <code>{agent.active_task.kanban_task_id} · {agent.active_task.status}</code>
