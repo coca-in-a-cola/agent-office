@@ -33,6 +33,7 @@ from .storage import (
     get_default_storage,
 )
 from .auth import SessionStore, telegram_role, validate_telegram_init_data
+from .config_reload import handle_config_reload
 from .editor import EditorApiError, EditorService
 from .workflow.service import WorkflowApiError, WorkflowService
 
@@ -539,6 +540,11 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
             self.handle_api_state()
             return
 
+        # Route: Hermes config status
+        if parsed_path == "/api/hermes/config/status":
+            self.handle_api_call(lambda: self._handle_config_status())
+            return
+
         if parsed_path == "/api/office/grid":
             self.handle_api_call(lambda: {"status": "ok", "grid": self.storage.get_campus_grid()})
             return
@@ -572,6 +578,11 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
         actor = self.get_verified_actor(require_auth=True)
         self.check_grant(actor, "read_logs")
         return producer()
+
+    def _handle_config_status(self) -> dict[str, Any]:
+        """Return current Hermes config status (authenticated)."""
+        self.get_verified_actor(require_auth=True)
+        return handle_config_reload({"action": "status", "target": "all"})
 
     def validate_csrf(self) -> None:
         origin = self.headers.get("Origin")
@@ -752,6 +763,18 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
             self.validate_csrf()
             if parsed_path in ("/api/auth/telegram", "/api/auth/login", "/api/auth/logout"):
                 self.handle_auth(parsed_path)
+                return
+
+            # Route: Hermes config reload
+            if parsed_path == "/api/hermes/config/reload":
+                actor = self.get_verified_actor(require_auth=True)
+                self.check_grant(actor, "publish_definition")
+                body = self.read_json_body()
+                result = handle_config_reload({
+                    "action": "reload",
+                    "target": body.get("target", "all"),
+                })
+                self.send_json(HTTPStatus.OK, result)
                 return
 
             agent_parts = [unquote(p) for p in parsed_path.split("/") if p]
