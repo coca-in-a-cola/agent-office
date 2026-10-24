@@ -106,6 +106,11 @@ def _check_not_placeholder(value: str, field_name: str) -> None:
 
 
 def resolve_native_delegation_policy(storage: Any, agent_id: str) -> Dict[str, Any]:
+    """Read-only priority adapter. Round robin requires an admission handshake."""
+    return _resolve_native_policy(storage, agent_id)
+
+
+def _resolve_native_policy(storage: Any, agent_id: str, *, allow_round_robin: bool = False) -> Dict[str, Any]:
     """Resolve native delegation policy for an agent.
 
     Args:
@@ -165,9 +170,9 @@ def resolve_native_delegation_policy(storage: Any, agent_id: str) -> Dict[str, A
         raise InvalidPolicyError(f"Invalid policy_revision: {policy_revision!r}. Must be integer >= 1")
 
     # Validate routing strategy: priority only, round_robin explicitly unsupported
-    if routing_strategy == "round_robin":
+    if routing_strategy == "round_robin" and not allow_round_robin:
         raise UnsupportedRoutingStrategyError("round_robin routing strategy is not supported yet")
-    if routing_strategy != "priority":
+    if routing_strategy not in ("priority", "round_robin"):
         raise UnsupportedRoutingStrategyError(f"Unsupported routing strategy: {routing_strategy!r}")
 
     # Validate models list
@@ -244,10 +249,13 @@ def resolve_native_delegation_policy(storage: Any, agent_id: str) -> Dict[str, A
             continue
         credentials_cfg[str(k)] = v
 
-    return {
+    result = {
         "agent_id": valid_agent_id,
         "role": valid_role,
         "revision": policy_revision,
         "selected_route": selected_route,
         "credentials_cfg": credentials_cfg,
     }
+    if allow_round_robin:
+        result["routing_strategy"] = routing_strategy
+    return result

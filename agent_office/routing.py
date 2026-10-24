@@ -6,6 +6,7 @@ Jev probabilistic routing adapter, and strict decoupling of gamification from op
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 import json
@@ -1177,16 +1178,24 @@ class DurableRouteStore:
             self._mem_conn = None
         self._init_schema()
 
+    @contextmanager
     def _get_connection(self):
-        if self._mem_conn is not None:
-            return self._mem_conn
-        conn = self._sqlite3.connect(self.db_path, timeout=30.0)
-        conn.row_factory = self._sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL;")
-        return conn
+        with self._lock:
+            conn = self._mem_conn
+            owned = conn is None
+            if owned:
+                conn = self._sqlite3.connect(self.db_path, timeout=30.0)
+                conn.row_factory = self._sqlite3.Row
+            try:
+                with conn:
+                    yield conn
+            finally:
+                if owned:
+                    conn.close()
 
     def _init_schema(self) -> None:
         with self._get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS provider_cooldowns (
@@ -1224,7 +1233,84 @@ class DurableRouteStore:
                 );
                 """
             )
+            # Add admission lifecycle fields to the existing reservation store.
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(route_reservations)")}
+            for name, definition in (
+                ("reservation_state", "TEXT"),
+                ("cursor_position", "INTEGER"),
+                ("cursor_modulo", "INTEGER"),
+            ):
+                if name not in columns:
+                    conn.execute(f"ALTER TABLE route_reservations ADD COLUMN {name} {definition}")
             conn.commit()
+
+    def reserve_round_robin(self, policy_key: str, routes: list[dict[str, str]], role: str) -> dict[str, Any]:
+        """Persist a provisional choice without consuming a turn.
+
+        Concurrent reservations may select the same position. Only the first
+        successful commit wins; stale callers must reserve again AND repeat host
+        authorization. Abandoned reservations never block or advance the cursor.
+        Use a revision-scoped policy_key and an immutable ordered route list.
+        """
+        if not policy_key or not routes:
+            raise ValueError("A policy key and routes are required")
+        token = uuid.uuid4().hex
+        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        with self._lock, self._get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT cursor FROM provider_cursors WHERE policy_key = ?", (policy_key,)).fetchone()
+            position = int(row["cursor"]) if row else 0
+            index = position % len(routes)
+            route = routes[index]
+            conn.execute(
+                """INSERT INTO route_reservations
+                (reservation_key, route_id, provider, requested_model, executor, role,
+                 policy_id, created_at, reservation_state, cursor_position, cursor_modulo)
+                VALUES (?, ?, ?, ?, 'native', ?, ?, ?, 'pending', ?, ?)""",
+                (token, str(index), route["provider"], route["model"], role,
+                 policy_key, now, position, len(routes)),
+            )
+            return dict(conn.execute("SELECT * FROM route_reservations WHERE reservation_key = ?", (token,)).fetchone())
+
+    def commit_round_robin(self, token: str, policy_key: str) -> bool:
+        """Commit exactly once after host admission; False means reselect/reapprove.
+
+        The host must not construct a child if this returns False. Idempotent
+        True on a committed token is for reconciliation, NOT a second spawn.
+        Cursor values are monotonic to prevent ABA after a full rotation.
+        """
+        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        with self._lock, self._get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT * FROM route_reservations WHERE reservation_key = ?", (token,)).fetchone()
+            if not row or row["policy_id"] != policy_key:
+                return False
+            if row["reservation_state"] == "committed":
+                return True
+            if row["reservation_state"] != "pending":
+                return False
+            cursor = conn.execute("SELECT cursor FROM provider_cursors WHERE policy_key = ?", (policy_key,)).fetchone()
+            position = int(cursor["cursor"]) if cursor else 0
+            if position != row["cursor_position"]:
+                conn.execute("UPDATE route_reservations SET reservation_state = 'stale' WHERE reservation_key = ?", (token,))
+                return False
+            conn.execute(
+                """INSERT INTO provider_cursors (policy_key, cursor, updated_at) VALUES (?, ?, ?)
+                ON CONFLICT(policy_key) DO UPDATE SET cursor = excluded.cursor, updated_at = excluded.updated_at""",
+                (policy_key, position + 1, now),
+            )
+            conn.execute("UPDATE route_reservations SET reservation_state = 'committed' WHERE reservation_key = ?", (token,))
+            return True
+
+    def release_round_robin(self, token: str) -> bool:
+        """Cancel a pending/stale selection. Never undo an admitted turn."""
+        with self._lock, self._get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            result = conn.execute(
+                """UPDATE route_reservations SET reservation_state = 'released'
+                WHERE reservation_key = ? AND reservation_state IN ('pending', 'stale')""", (token,)
+            )
+            return result.rowcount == 1
 
     def set_provider_cooldown(self, provider: str, duration_seconds: float = 1800.0, reason: str = "") -> None:
         cooldown_until = time.time() + duration_seconds
@@ -1297,6 +1383,7 @@ class DurableRouteStore:
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         with self._lock:
             with self._get_connection() as conn:
+                conn.execute("BEGIN IMMEDIATE")
                 row = conn.execute(
                     "SELECT cursor FROM provider_cursors WHERE policy_key = ?;",
                     (policy_key,),
