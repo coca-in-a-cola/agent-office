@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { OfficeState, StudioFocus } from './types';
+import { bootstrapAuth } from './api/auth';
 import { IsometricOffice } from './components/IsometricOffice';
 import { EmployeeRoster } from './components/EmployeeRoster';
 import { AgentInspector } from './components/AgentInspector';
@@ -154,39 +155,21 @@ const MainOfficeApp: React.FC = () => {
     }
   };
 
-  useEffect(() => {
-    const initAuth = async () => {
-      try {
-        const tg = (window as any).Telegram?.WebApp;
-        if (tg) {
-          tg.ready();
-          tg.expand();
-          if (tg.initData) {
-            const res = await fetch('/api/auth/telegram', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ initData: tg.initData }),
-            });
-            if (res.ok) {
-              const data = await res.json();
-              setAuthUser(data.user);
-              return;
-            }
-          }
-        }
-        const meRes = await fetch('/api/auth/me');
-        if (meRes.ok) {
-          const meData = await meRes.json();
-          setAuthUser(meData.user);
-        }
-      } catch (err) {
-        console.warn('Auth initialization:', err);
-      } finally {
-        setAuthReady(true);
-      }
-    };
-    initAuth();
+  const initAuth = useCallback(async () => {
+    setAuthReady(false);
+    setLoginError('');
+    try {
+      const user = await bootstrapAuth();
+      setAuthUser(user);
+      if (!user) setLoginError('No signed Telegram session was received. Open this Mini App from the bot. If already in Telegram, close and reopen it, then retry.');
+    } catch (error) {
+      setLoginError(error instanceof Error && error.name !== 'AbortError' ? error.message : 'Telegram sign-in timed out or could not connect. Check your connection and retry.');
+    } finally {
+      setAuthReady(true);
+    }
   }, []);
+
+  useEffect(() => { void initAuth(); }, [initAuth]);
 
   useEffect(() => {
     if (!authUser) return;
@@ -218,6 +201,7 @@ const MainOfficeApp: React.FC = () => {
         <label htmlFor="office-login">Password or access token</label>
         <input id="office-login" name="password" type="password" autoComplete="current-password" required value={loginSecret} onChange={(event) => setLoginSecret(event.target.value)} style={{ padding: '0.8rem' }} />
         <button type="submit" disabled={!authReady || loginPending} style={{ padding: '0.8rem' }}>{loginPending ? 'Signing in…' : 'Sign in'}</button>
+        <button type="button" disabled={!authReady || loginPending} onClick={() => void initAuth()} style={{ padding: '0.8rem' }}>Retry Telegram sign-in</button>
         {loginError && <p role="alert">{loginError}</p>}
       </form>
     </main>
