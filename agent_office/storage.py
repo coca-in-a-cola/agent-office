@@ -769,6 +769,71 @@ class OfficeStorage:
                 )
             return cur.rowcount > 0
 
+    def set_agent_policy(
+        self,
+        agent_id: str,
+        models: Any,
+        routing_strategy: Any = None,
+    ) -> Optional[dict[str, Any]]:
+        """Atomically set model policy and routing strategy on an existing agent.
+
+        Preserves all existing agent columns (including last_seen_at) and unrelated metadata fields.
+        If policy values are identical and policy_revision exists, avoids redundant UPDATE and
+        revision increment. When changed, increments policy_revision starting from 0.
+        Returns the updated agent projection via get_agent(agent_id), or None if agent not found.
+        """
+        if not agent_id:
+            return None
+
+        with self._lock:
+            conn = self.get_connection()
+            conn.execute("BEGIN IMMEDIATE;")
+            try:
+                cur = conn.execute("SELECT * FROM agents WHERE id = ?;", (agent_id,))
+                row = cur.fetchone()
+                if row is None:
+                    conn.execute("ROLLBACK;")
+                    return None
+
+                existing = dict(row)
+                meta = _deserialize_json(existing.get("metadata_json"))
+                if not isinstance(meta, dict):
+                    meta = {}
+
+                existing_models = meta.get("models")
+                existing_strategy = meta.get("routing_strategy")
+                has_rev = "policy_revision" in meta
+
+                if has_rev and existing_models == models and existing_strategy == routing_strategy:
+                    conn.execute("COMMIT;")
+                    return self.get_agent(agent_id)
+
+                try:
+                    current_rev = int(meta.get("policy_revision", 0))
+                except (ValueError, TypeError):
+                    current_rev = 0
+                new_rev = current_rev + 1
+
+                new_meta = dict(meta)
+                new_meta["models"] = models
+                new_meta["routing_strategy"] = routing_strategy
+                new_meta["policy_revision"] = new_rev
+
+                meta_json = _serialize_json(new_meta)
+                conn.execute(
+                    "UPDATE agents SET metadata_json = ? WHERE id = ?;",
+                    (meta_json, agent_id),
+                )
+                conn.execute("COMMIT;")
+            except Exception:
+                try:
+                    conn.execute("ROLLBACK;")
+                except Exception:
+                    pass
+                raise
+
+        return self.get_agent(agent_id)
+
     @_fail_open(default_return=None)
     def get_agent(self, agent_id: str) -> Optional[dict[str, Any]]:
         """Fetch agent state dictionary by agent ID."""
@@ -781,6 +846,14 @@ class OfficeStorage:
             res = dict(row)
             res["capabilities"] = _deserialize_json(res.get("capabilities_json"))
             res["metadata"] = _deserialize_json(res.get("metadata_json"))
+            meta = res.get("metadata")
+            if isinstance(meta, dict):
+                if "models" in meta:
+                    res["models"] = meta["models"]
+                if "routing_strategy" in meta:
+                    res["routing_strategy"] = meta["routing_strategy"]
+                if "policy_revision" in meta:
+                    res["policy_revision"] = meta["policy_revision"]
             return res
 
     @_fail_open(default_return=[])
@@ -810,6 +883,14 @@ class OfficeStorage:
                 d = dict(row)
                 d["capabilities"] = _deserialize_json(d.get("capabilities_json"))
                 d["metadata"] = _deserialize_json(d.get("metadata_json"))
+                meta = d.get("metadata")
+                if isinstance(meta, dict):
+                    if "models" in meta:
+                        d["models"] = meta["models"]
+                    if "routing_strategy" in meta:
+                        d["routing_strategy"] = meta["routing_strategy"]
+                    if "policy_revision" in meta:
+                        d["policy_revision"] = meta["policy_revision"]
                 results.append(d)
             return results
 
