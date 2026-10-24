@@ -511,18 +511,26 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
         """Handle GET requests routing API and static assets."""
         parsed_path = self.path.split("?")[0].rstrip("/")
 
+        # Route: API health
+        if parsed_path == "/api/health":
+            self.handle_api_health()
+            return
+
         if parsed_path == "/api/auth/me":
             self.handle_api_call(lambda: {"status": "ok", "user": self.get_verified_actor(require_auth=True)})
             return
 
+        # Central fail-closed authentication barrier for all API routes
+        if parsed_path == "/api" or parsed_path.startswith("/api/"):
+            try:
+                self.get_verified_actor(require_auth=True)
+            except WorkflowApiError as exc:
+                self.send_json(exc.status, {"status": "error", "message": exc.message})
+                return
+
         # Route: API state
         if parsed_path == "/api/state":
             self.handle_api_state()
-            return
-
-        # Route: API health
-        if parsed_path == "/api/health":
-            self.handle_api_health()
             return
 
         if parsed_path == "/api/office/grid":
@@ -746,6 +754,8 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
                 self.handle_editor("POST", parsed_path)
                 return
             if parsed_path == "/api/office/grid":
+                actor = self.get_verified_actor(require_auth=True)
+                self.check_grant(actor, "publish_definition")
                 payload = self.read_json_body()
                 grid_payload = payload.get("grid", payload) if isinstance(payload, dict) else payload
                 if not isinstance(grid_payload, dict):

@@ -9,6 +9,7 @@ import urllib.error
 from pathlib import Path
 from agent_office.storage import OfficeStorage
 from agent_office.server import create_server
+from agent_office.auth import SessionStore
 
 class TestCampusGridStorage(unittest.TestCase):
     def setUp(self):
@@ -95,6 +96,8 @@ class TestCampusGridApiEndpoints(unittest.TestCase):
         cls.temp_dir = tempfile.mkdtemp()
         cls.db_path = Path(cls.temp_dir) / "server_test.sqlite3"
         cls.storage = OfficeStorage(db_path=cls.db_path)
+        cls.session_store = SessionStore(Path(cls.temp_dir) / "sessions.sqlite3")
+        cls.session = cls.session_store.create_session(user_id="md_test", role="managing_director", name="MD")
         cls.static_dir = Path(cls.temp_dir) / "static"
         cls.static_dir.mkdir(parents=True, exist_ok=True)
         (cls.static_dir / "index.html").write_text("<!DOCTYPE html><html><body>Test</body></html>")
@@ -102,9 +105,15 @@ class TestCampusGridApiEndpoints(unittest.TestCase):
             host="127.0.0.1",
             port=0,
             storage=cls.storage,
+            session_store=cls.session_store,
             static_dir=cls.static_dir,
         )
         cls.port = cls.server.server_address[1]
+        cls.auth_headers = {
+            "Cookie": f"session={cls.session['token']}",
+            "Origin": f"http://127.0.0.1:{cls.port}",
+            "Content-Type": "application/json",
+        }
         cls.server_thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.server_thread.start()
         time.sleep(0.05)
@@ -114,6 +123,7 @@ class TestCampusGridApiEndpoints(unittest.TestCase):
         cls.server.shutdown()
         cls.server.server_close()
         cls.storage.close()
+        cls.session_store.close()
         shutil.rmtree(cls.temp_dir, ignore_errors=True)
 
     def test_post_grid_object_and_get(self):
@@ -122,7 +132,7 @@ class TestCampusGridApiEndpoints(unittest.TestCase):
         req = urllib.request.Request(
             url,
             data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            headers=self.auth_headers,
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=5) as resp:
@@ -132,7 +142,7 @@ class TestCampusGridApiEndpoints(unittest.TestCase):
             self.assertTrue(data.get("saved"))
 
         # GET to verify
-        req_get = urllib.request.Request(url, method="GET")
+        req_get = urllib.request.Request(url, headers=self.auth_headers, method="GET")
         with urllib.request.urlopen(req_get, timeout=5) as resp:
             self.assertEqual(resp.status, 200)
             data = json.loads(resp.read().decode("utf-8"))
@@ -147,7 +157,7 @@ class TestCampusGridApiEndpoints(unittest.TestCase):
         req = urllib.request.Request(
             url,
             data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            headers=self.auth_headers,
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=5) as resp:
@@ -162,7 +172,7 @@ class TestCampusGridApiEndpoints(unittest.TestCase):
         req = urllib.request.Request(
             url,
             data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            headers=self.auth_headers,
             method="POST",
         )
         with self.assertRaises(urllib.error.HTTPError) as ctx:

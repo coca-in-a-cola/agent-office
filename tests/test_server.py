@@ -12,6 +12,7 @@ import unittest
 import urllib.error
 import urllib.request
 
+from agent_office.auth import SessionStore
 from agent_office.events import Event
 from agent_office.server import (
     DEFAULT_WORKSTATIONS,
@@ -140,6 +141,8 @@ class TestServerEndpoints(unittest.TestCase):
         cls.temp_dir = tempfile.mkdtemp()
         cls.db_path = Path(cls.temp_dir) / "server_test.sqlite3"
         cls.storage = OfficeStorage(db_path=cls.db_path)
+        cls.session_store = SessionStore(Path(cls.temp_dir) / "sessions.sqlite3")
+        cls.session = cls.session_store.create_session(user_id="md_test", role="managing_director", name="MD")
 
         # Create static test directory
         cls.static_dir = Path(cls.temp_dir) / "static"
@@ -152,6 +155,7 @@ class TestServerEndpoints(unittest.TestCase):
             host="127.0.0.1",
             port=0,
             storage=cls.storage,
+            session_store=cls.session_store,
             static_dir=cls.static_dir,
         )
         cls.port = cls.server.server_address[1]
@@ -164,12 +168,16 @@ class TestServerEndpoints(unittest.TestCase):
         cls.server.shutdown()
         cls.server.server_close()
         cls.storage.close()
+        cls.session_store.close()
         shutil.rmtree(cls.temp_dir, ignore_errors=True)
 
     def test_api_state_endpoint(self) -> None:
         """GET /api/state returns 200 and valid JSON with CORS headers."""
         url = f"http://127.0.0.1:{self.port}/api/state"
-        req = urllib.request.Request(url)
+        req = urllib.request.Request(
+            url,
+            headers={"Cookie": f"session={self.session['token']}"},
+        )
         with urllib.request.urlopen(req, timeout=5) as resp:
             self.assertEqual(resp.status, 200)
             self.assertIn("application/json", resp.headers.get("Content-Type", ""))
