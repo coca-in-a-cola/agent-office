@@ -1,0 +1,359 @@
+.employee-model-policy-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+
+  .policy-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    h3 {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      font-weight: 600;
+      margin: 0;
+    }
+
+    .policy-btn-edit {
+      background: rgba(6, 182, 212, 0.12);
+      border: 1px solid rgba(6, 182, 212, 0.35);
+      color: var(--accent-cyan);
+      border-radius: 4px;
+      padding: 3px 8px;
+      font-size: 11px;
+      font-family: var(--font-sans);
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+
+      &:hover:not(:disabled) {
+        background: rgba(6, 182, 212, 0.22);
+        border-color: var(--accent-cyan);
+      }
+
+      &:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+    }
+  }
+
+  .policy-section {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+
+    .policy-subheading {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-muted);
+    }
+
+    .policy-current-model {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--accent-cyan);
+      background: rgba(15, 23, 42, 0.6);
+      padding: 4px 8px;
+      border-radius: 4px;
+      border: 1px solid var(--border-color);
+      display: inline-block;
+      word-break: break-all;
+    }
+  }
+
+  .policy-details {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 2px;
+
+    .policy-meta-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+
+      .policy-meta-label {
+        color: var(--text-muted);
+      }
+
+      .policy-strategy-badge {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--accent-amber);
+        background: rgba(245, 158, 11, 0.12);
+        border: 1px solid rgba(245, 158, 11, 0.3);
+        padding: 2px 6px;
+        border-radius: 4px;
+        text-transform: capitalize;
+      }
+    }
+
+    .policy-models-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+
+      .policy-model-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        background: rgba(15, 23, 42, 0.5);
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        padding: 4px 8px;
+        font-family: var(--font-mono);
+        font-size: 11px;
+
+        .policy-rank {
+          color: var(--text-muted);
+          font-size: 10px;
+          min-width: 18px;
+        }
+
+        .policy-provider {
+          color: var(--accent-cyan);
+          background: rgba(6, 182, 212, 0.1);
+          padding: 1px 5px;
+          border-radius: 3px;
+        }
+
+        .policy-model-name {
+          color: var(--text-primary);
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+      }
+    }
+  }
+
+  .policy-empty {
+    font-size: 11px;
+    font-style: italic;
+    color: var(--text-muted);
+    background: rgba(15, 23, 42, 0.3);
+    padding: 6px 8px;
+    border-radius: 4px;
+    border: 1px dashed var(--border-color);
+  }
+
+  .policy-edit-form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+
+    .policy-form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .policy-label {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-muted);
+    }
+
+    .policy-select {
+      background: #0f172a;
+      border: 1px solid var(--border-color);
+      color: var(--text-primary);
+      border-radius: 4px;
+      padding: 5px 8px;
+      font-size: 12px;
+      font-family: var(--font-sans);
+      outline: none;
+
+      &:focus {
+        border-color: var(--accent-cyan);
+      }
+
+      &:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+    }
+
+    .policy-models-edit-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .policy-edit-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+
+      .policy-edit-rank {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        color: var(--text-muted);
+        min-width: 18px;
+        text-align: center;
+      }
+
+      .policy-input {
+        flex: 1;
+        min-width: 0;
+        background: #0f172a;
+        border: 1px solid var(--border-color);
+        color: var(--text-primary);
+        border-radius: 4px;
+        padding: 5px 8px;
+        font-size: 11px;
+        font-family: var(--font-mono);
+        outline: none;
+
+        &::placeholder {
+          color: var(--text-muted);
+          opacity: 0.7;
+        }
+
+        &:focus {
+          border-color: var(--accent-cyan);
+        }
+
+        &:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+      }
+
+      .policy-row-actions {
+        display: flex;
+        align-items: center;
+        gap: 3px;
+      }
+
+      .policy-btn-icon {
+        background: rgba(30, 41, 59, 0.7);
+        border: 1px solid var(--border-color);
+        color: var(--text-secondary);
+        border-radius: 3px;
+        width: 24px;
+        height: 24px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 11px;
+        cursor: pointer;
+        padding: 0;
+        transition: background 0.15s, color 0.15s, border-color 0.15s;
+
+        &:hover:not(:disabled) {
+          background: rgba(51, 65, 85, 0.9);
+          color: var(--text-primary);
+          border-color: #475569;
+        }
+
+        &.policy-btn-danger:hover:not(:disabled) {
+          background: rgba(244, 63, 94, 0.2);
+          border-color: var(--accent-rose);
+          color: var(--accent-rose);
+        }
+
+        &:disabled {
+          opacity: 0.35;
+          cursor: not-allowed;
+        }
+      }
+    }
+
+    .policy-btn-add {
+      background: rgba(16, 185, 129, 0.1);
+      border: 1px dashed rgba(16, 185, 129, 0.4);
+      color: var(--accent-emerald);
+      border-radius: 4px;
+      padding: 6px;
+      font-size: 11px;
+      font-family: var(--font-sans);
+      font-weight: 500;
+      cursor: pointer;
+      text-align: center;
+      transition: background 0.15s, border-color 0.15s;
+
+      &:hover:not(:disabled) {
+        background: rgba(16, 185, 129, 0.2);
+        border-color: var(--accent-emerald);
+      }
+
+      &:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+    }
+
+    .policy-error {
+      background: rgba(244, 63, 94, 0.12);
+      border: 1px solid rgba(244, 63, 94, 0.4);
+      color: #fda4af;
+      padding: 6px 10px;
+      border-radius: 4px;
+      font-size: 11px;
+      line-height: 1.4;
+      word-break: break-word;
+    }
+
+    .policy-form-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 4px;
+
+      .policy-btn-cancel {
+        background: transparent;
+        border: 1px solid var(--border-color);
+        color: var(--text-secondary);
+        border-radius: 4px;
+        padding: 5px 12px;
+        font-size: 11px;
+        cursor: pointer;
+        transition: background 0.15s, color 0.15s;
+
+        &:hover:not(:disabled) {
+          background: rgba(30, 41, 59, 0.5);
+          color: var(--text-primary);
+        }
+
+        &:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+      }
+
+      .policy-btn-save {
+        background: #0284c7;
+        border: 1px solid #38bdf8;
+        color: #ffffff;
+        border-radius: 4px;
+        padding: 5px 14px;
+        font-size: 11px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.15s, opacity 0.15s;
+
+        &:hover:not(:disabled) {
+          background: #0369a1;
+        }
+
+        &:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+      }
+    }
+  }
+}

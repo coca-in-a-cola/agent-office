@@ -101,6 +101,31 @@ const MainOfficeApp: React.FC = () => {
 
   const [studioFocus, setStudioFocus] = useState<StudioFocus | null>(null);
   const [authUser, setAuthUser] = useState<{ id: string; role: string; name?: string } | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [loginSecret, setLoginSecret] = useState('');
+  const [loginPending, setLoginPending] = useState(false);
+  const [loginError, setLoginError] = useState('');
+
+  const login = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setLoginPending(true);
+    setLoginError('');
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: loginSecret, token: loginSecret }),
+      });
+      if (!response.ok) throw new Error(response.status === 401 ? 'Invalid password or access token.' : `Login failed (HTTP ${response.status}).`);
+      const data = await response.json();
+      setLoginSecret('');
+      setAuthUser(data.user);
+    } catch (error) {
+      setLoginError(error instanceof Error ? error.message : 'Login failed.');
+    } finally {
+      setLoginPending(false);
+    }
+  };
 
   const switchView = (next: View) => {
     setIsInspectorOpen(false);
@@ -118,6 +143,7 @@ const MainOfficeApp: React.FC = () => {
   const fetchState = async () => {
     try {
       const res = await fetch('/api/state');
+      if (res.status === 401) setAuthUser(null);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: OfficeState = await res.json();
       setState(data);
@@ -155,16 +181,19 @@ const MainOfficeApp: React.FC = () => {
         }
       } catch (err) {
         console.warn('Auth initialization:', err);
+      } finally {
+        setAuthReady(true);
       }
     };
     initAuth();
   }, []);
 
   useEffect(() => {
+    if (!authUser) return;
     fetchState();
     const interval = setInterval(fetchState, 2500);
     return () => clearInterval(interval);
-  }, []);
+  }, [authUser]);
 
   const selectedAgent = state.agents.find(
     (a) => a.id.toLowerCase() === (selectedAgentId || '').toLowerCase()
@@ -180,6 +209,19 @@ const MainOfficeApp: React.FC = () => {
     setActiveTab(tab);
     switchView('tycoon');
   };
+
+  if (!authUser) return (
+    <main className="office-app" style={{ padding: '2rem', minHeight: '100vh', justifyContent: 'center', alignItems: 'center' }}>
+      <form onSubmit={login} style={{ width: 'min(100%, 380px)', display: 'grid', gap: '1rem' }}>
+        <h1>Agent Office</h1>
+        <p>{authReady ? 'Login required. Open from Telegram or sign in with your Office password or access token.' : 'Checking your session…'}</p>
+        <label htmlFor="office-login">Password or access token</label>
+        <input id="office-login" name="password" type="password" autoComplete="current-password" required value={loginSecret} onChange={(event) => setLoginSecret(event.target.value)} style={{ padding: '0.8rem' }} />
+        <button type="submit" disabled={!authReady || loginPending} style={{ padding: '0.8rem' }}>{loginPending ? 'Signing in…' : 'Sign in'}</button>
+        {loginError && <p role="alert">{loginError}</p>}
+      </form>
+    </main>
+  );
 
   return (
     <div className="office-app">

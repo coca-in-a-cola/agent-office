@@ -25,6 +25,7 @@ try:
 except Exception:
     _HERMES_AVAILABLE = False
 
+from agent_office.auth import SessionStore
 from agent_office.events import get_default_dispatcher, reset_default_dispatcher
 from agent_office.hooks import get_default_hook_manager
 from agent_office.server import create_server
@@ -186,14 +187,19 @@ class TestLiveDogfooding(unittest.TestCase):
             status="success",
         )
 
-        server = create_server(storage=self.storage, host="127.0.0.1", port=0)
+        session_store = SessionStore(Path(self.temp_dir.name) / "sessions.sqlite3")
+        session = session_store.create_session(user_id="md_test", role="managing_director", name="MD")
+        server = create_server(storage=self.storage, session_store=session_store, host="127.0.0.1", port=0)
         server_thread = threading.Thread(target=server.serve_forever, daemon=True)
         server_thread.start()
         port = server.server_port
 
         try:
             url = f"http://127.0.0.1:{port}/api/state"
-            req = urllib.request.Request(url)
+            req = urllib.request.Request(
+                url,
+                headers={"Cookie": f"session={session['token']}"},
+            )
             with urllib.request.urlopen(req, timeout=5) as response:
                 self.assertEqual(response.status, 200)
                 body = response.read().decode("utf-8")
@@ -212,6 +218,7 @@ class TestLiveDogfooding(unittest.TestCase):
         finally:
             server.shutdown()
             server.server_close()
+            session_store.close()
 
 
 if __name__ == "__main__":

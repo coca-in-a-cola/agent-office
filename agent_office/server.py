@@ -272,10 +272,16 @@ def get_office_state(
         merged["profile_name"] = sa.get("profile_name") or merged.get("profile_name") or aid.capitalize()
         merged["role"] = sa.get("role") or merged.get("role") or "Agent"
         merged["status"] = normalize_status(sa.get("status") or merged.get("status"))
-        merged["current_model"] = sa.get("current_model") or merged.get("current_model") or "unknown"
+        merged["current_model"] = (
+            sa.get("current_model")
+            if sa.get("current_model") is not None
+            else "unknown"
+            if isinstance(sa.get("metadata"), dict) and (sa.get("metadata") or {}).get("policy_only")
+            else (merged.get("current_model") or "unknown")
+        )
         merged["capabilities"] = sa.get("capabilities") or merged.get("capabilities") or []
         merged["metadata"] = sa.get("metadata") or merged.get("metadata") or {}
-        merged["last_seen_at"] = sa.get("last_seen_at") or now
+        merged["last_seen_at"] = sa.get("last_seen_at") if sa.get("last_seen_at") is not None else now
         merged["models"] = sa.get("models") or merged.get("models") or []
         merged["routing_strategy"] = sa.get("routing_strategy") or merged.get("routing_strategy") or "priority"
         agent_map[aid] = merged
@@ -511,18 +517,26 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
         """Handle GET requests routing API and static assets."""
         parsed_path = self.path.split("?")[0].rstrip("/")
 
+        # Route: API health
+        if parsed_path == "/api/health":
+            self.handle_api_health()
+            return
+
         if parsed_path == "/api/auth/me":
             self.handle_api_call(lambda: {"status": "ok", "user": self.get_verified_actor(require_auth=True)})
             return
 
+        # Central fail-closed authentication barrier for all API routes
+        if parsed_path == "/api" or parsed_path.startswith("/api/"):
+            try:
+                self.get_verified_actor(require_auth=True)
+            except WorkflowApiError as exc:
+                self.send_json(exc.status, {"status": "error", "message": exc.message})
+                return
+
         # Route: API state
         if parsed_path == "/api/state":
             self.handle_api_state()
-            return
-
-        # Route: API health
-        if parsed_path == "/api/health":
-            self.handle_api_health()
             return
 
         if parsed_path == "/api/office/grid":
@@ -739,6 +753,86 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
             if parsed_path in ("/api/auth/telegram", "/api/auth/login", "/api/auth/logout"):
                 self.handle_auth(parsed_path)
                 return
+
+            agent_parts = [unquote(p) for p in parsed_path.split("/") if p]
+            if len(agent_parts) == 4 and agent_parts[:2] == ["api", "agents"] and agent_parts[3] == "policy":
+                agent_id = agent_parts[2]
+                if (
+                    not agent_id
+                    or agent_id != agent_id.strip()
+                    or "/" in agent_id
+                    or "\\" in agent_id
+                    or ".." in agent_id
+                    or any(ord(c) < 32 or ord(c) == 127 for c in agent_id)
+                ):
+                    raise WorkflowApiError(400, "invalid agent id")
+
+                actor = self.get_verified_actor(require_auth=True)
+                self.check_grant(actor, "publish_definition")
+
+                payload = self.read_json_body()
+                if not isinstance(payload, dict):
+                    raise WorkflowApiError(400, "request body must be a JSON object")
+
+                strategy = payload.get("strategy")
+                if strategy not in ("priority", "round_robin"):
+                    raise WorkflowApiError(400, "invalid strategy: must be 'priority' or 'round_robin'")
+
+                models = payload.get("models")
+                if not isinstance(models, list) or not (1 <= len(models) <= 32):
+                    raise WorkflowApiError(400, "models must be a list of 1 to 32 entries")
+
+                seen_pairs = set()
+                normalized_models = []
+                for idx, entry in enumerate(models, start=1):
+                    if not isinstance(entry, dict):
+                        raise WorkflowApiError(400, "each model entry must be a dictionary")
+                    provider = entry.get("provider")
+                    model_name = entry.get("model")
+                    if not isinstance(provider, str) or not isinstance(model_name, str):
+                        raise WorkflowApiError(400, "provider and model must be strings")
+                    if not (1 <= len(provider) <= 128) or not (1 <= len(model_name) <= 128):
+                        raise WorkflowApiError(400, "provider and model length must be 1 to 128 characters")
+                    if provider != provider.strip() or model_name != model_name.strip() or not provider.strip() or not model_name.strip():
+                        raise WorkflowApiError(400, "provider and model must not contain leading/trailing whitespace or be whitespace-only")
+                    if any(ord(c) < 32 or ord(c) == 127 for c in provider) or any(ord(c) < 32 or ord(c) == 127 for c in model_name):
+                        raise WorkflowApiError(400, "provider and model must not contain control characters")
+                    pair = (provider, model_name)
+                    if pair in seen_pairs:
+                        raise WorkflowApiError(400, f"duplicate provider and model pair: {pair}")
+                    seen_pairs.add(pair)
+                    entry_copy = dict(entry)
+                    entry_copy["provider"] = provider
+                    entry_copy["model"] = model_name
+                    entry_copy["priority"] = idx
+                    normalized_models.append(entry_copy)
+
+                storage = self.storage
+                if storage is None:
+                    raise WorkflowApiError(503, "storage is not configured")
+
+                agent = storage.get_agent(agent_id)
+                if agent is None:
+                    ws_def = next((w for w in DEFAULT_WORKSTATIONS if w.get("id") == agent_id), None)
+                    if ws_def is None:
+                        raise WorkflowApiError(404, f"agent {agent_id!r} not found")
+                    storage.register_or_update_agent(
+                        agent_id=agent_id,
+                        profile_name=ws_def.get("profile_name") or ws_def.get("profile", ""),
+                        role=ws_def.get("role", ""),
+                        status="offline",
+                        current_model=None,
+                        last_seen_at=0,
+                        metadata={"policy_only": True},
+                    )
+
+                updated = storage.set_agent_policy(agent_id, normalized_models, strategy)
+                if updated is None:
+                    raise WorkflowApiError(404, f"agent {agent_id!r} not found")
+
+                self.send_json(HTTPStatus.OK, {"status": "ok", "agent": updated})
+                return
+
             if self.is_workflow_path(parsed_path):
                 self.handle_workflow("POST", parsed_path)
                 return
@@ -746,6 +840,8 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
                 self.handle_editor("POST", parsed_path)
                 return
             if parsed_path == "/api/office/grid":
+                actor = self.get_verified_actor(require_auth=True)
+                self.check_grant(actor, "publish_definition")
                 payload = self.read_json_body()
                 grid_payload = payload.get("grid", payload) if isinstance(payload, dict) else payload
                 if not isinstance(grid_payload, dict):
