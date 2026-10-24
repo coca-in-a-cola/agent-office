@@ -63,6 +63,10 @@ from .routing import (
     get_default_candidates,
     get_default_router,
 )
+from .config_reload import (
+    CONFIG_RELOAD_SCHEMA,
+    handle_config_reload,
+)
 
 __version__ = "0.1.0"
 __all__ = [
@@ -112,6 +116,8 @@ __all__ = [
     "HeuristicFallbackRouter",
     "JevAdapter",
     "get_default_router",
+    "CONFIG_RELOAD_SCHEMA",
+    "handle_config_reload",
     "register",
 ]
 
@@ -135,6 +141,24 @@ def register(ctx: Any) -> dict[str, Any]:
         # Same operator-configured storage as telemetry/service; do not substitute
         # a second database or swallow control-plane registration failures.
         ctx.register_delegation_route_resolver(make_office_route_resolver(get_default_storage()))
-    if registered or routing_supported:
-        registered["capabilities"] = {"delegation_route_resolver": routing_supported}
+
+    tool_registered = False
+    if hasattr(ctx, "register_tool"):
+        try:
+            ctx.register_tool(
+                name="config_reload",
+                schema=CONFIG_RELOAD_SCHEMA,
+                handler=handle_config_reload,
+                toolset="agent-office",
+            )
+            tool_registered = True
+        except Exception as exc:
+            import logging as _log
+            _log.getLogger("agent_office").warning("Failed to register config_reload tool: %s", exc)
+
+    if registered or routing_supported or tool_registered:
+        registered["capabilities"] = {
+            "delegation_route_resolver": routing_supported,
+            "config_reload_tool": tool_registered,
+        }
     return registered
