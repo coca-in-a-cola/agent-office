@@ -1293,7 +1293,9 @@ def create_server(
                                     workflow=workflow, bridge=bridge, editor=editor, **kwargs)
 
     server = ThreadingHTTPServer((host, port), handler_factory)
-    server.auth_token = auth_token or os.environ.get("AGENT_OFFICE_AUTH_TOKEN", "trusted-local-token")
+    # Bearer login is opt-in; missing configuration must never grant owner access.
+    server.auth_token = (auth_token if auth_token is not None
+                         else os.environ.get("AGENT_OFFICE_AUTH_TOKEN", ""))
     server.session_store = session_store if session_store is not None else SessionStore(
         os.environ.get("AGENT_OFFICE_SESSION_DB", ":memory:"))
     server.bot_token = bot_token or os.environ.get("TELEGRAM_BOT_TOKEN", "")
