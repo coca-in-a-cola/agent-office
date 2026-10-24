@@ -127,4 +127,14 @@ def register(ctx: Any) -> dict[str, Any]:
         pass
 
     manager = get_default_hook_manager()
-    return manager.register_to_context(ctx)
+    registered = manager.register_to_context(ctx)
+    routing_supported = hasattr(ctx, "register_delegation_route_resolver")
+    if routing_supported:
+        from .delegation_plugin import make_office_route_resolver
+
+        # Same operator-configured storage as telemetry/service; do not substitute
+        # a second database or swallow control-plane registration failures.
+        ctx.register_delegation_route_resolver(make_office_route_resolver(get_default_storage()))
+    if registered or routing_supported:
+        registered["capabilities"] = {"delegation_route_resolver": routing_supported}
+    return registered
