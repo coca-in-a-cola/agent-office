@@ -153,14 +153,15 @@ export function EmployeeModelPolicyEditor({ agent }: Props) {
         )}
       </div>
 
+      <p role="status">Saved policy only — not connected to the Hermes runtime. Saving does not change the running agent. Round Robin can be configured but is unsupported by the runtime.</p>
       <div className="policy-section">
-        <span className="policy-subheading">Current Active Model</span>
+        <span className="policy-subheading">Last Reported Model (telemetry)</span>
         <code className="policy-current-model">{agent.current_model || 'unknown'}</code>
       </div>
 
       {!isEditing ? (
         <div className="policy-section">
-          <span className="policy-subheading">Configured Routing Policy</span>
+          <span className="policy-subheading">Saved Routing Policy — not applied to runtime</span>
           {hasConfiguredPolicy ? (
             <div className="policy-details">
               <div className="policy-meta-row">
@@ -197,7 +198,7 @@ export function EmployeeModelPolicyEditor({ agent }: Props) {
               disabled={pending}
             >
               <option value="priority">Priority</option>
-              <option value="round_robin">Round Robin</option>
+              <option value="round_robin">Round Robin (runtime unsupported)</option>
             </select>
           </div>
 

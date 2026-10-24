@@ -24,7 +24,7 @@ export async function updateAgentPolicy(
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ models: payload.models, strategy: payload.routing_strategy }),
   });
 
   let data: any;
