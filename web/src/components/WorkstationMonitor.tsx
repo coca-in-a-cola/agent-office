@@ -1,50 +1,44 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Agent, AgentMonitor } from '../types';
+import { transport } from '../api/transport';
 import { BridgeStateBadge, TERMINAL_CLASS, TaskDrilldownModal, formatDuration } from './TaskDrilldownModal';
 import { Monitor, Radio } from 'lucide-react';
+import { useState } from 'react';
 
 interface WorkstationMonitorProps {
   agent: Agent;
 }
 
+/** Query key factory: scoped per agent id so switching agents never shows stale data. */
+export const agentMonitorKey = (agentId: string) => ['agentMonitor', agentId] as const;
+
 /** Agent's "monitor": live terminal tail of its Task Bridge task (or activity feed). */
 export const WorkstationMonitor: React.FC<WorkstationMonitorProps> = ({ agent }) => {
-  const [monitor, setMonitor] = useState<AgentMonitor | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [drilldownId, setDrilldownId] = useState<string | null>(null);
   const terminalRef = useRef<HTMLPreElement>(null);
   const stickToBottom = useRef(true);
 
   const isWorking = agent.status === 'working';
 
+  // Reset scroll-follow and drilldown whenever we switch to a different agent.
   useEffect(() => {
-    setMonitor(null);
-    setError(null);
     stickToBottom.current = true;
+    setDrilldownId(null);
   }, [agent.id]);
 
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const res = await fetch(`/api/agents/${encodeURIComponent(agent.id)}/monitor`);
-        const body = await res.json();
-        if (cancelled) return;
-        if (!res.ok) throw new Error(body?.message || `HTTP ${res.status}`);
-        setMonitor(body as AgentMonitor);
-        setError(null);
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
-      }
-    };
-    load();
-    // Poll every 3s while the drawer is open and the agent is working.
-    const timer = isWorking ? setInterval(load, 3000) : undefined;
-    return () => {
-      cancelled = true;
-      if (timer) clearInterval(timer);
-    };
-  }, [agent.id, isWorking]);
+  const { data: monitor, error: queryError } = useQuery<AgentMonitor>({
+    queryKey: agentMonitorKey(agent.id),
+    queryFn: ({ signal }) =>
+      transport<AgentMonitor>(`/api/agents/${encodeURIComponent(agent.id)}/monitor`, { signal }),
+    // Poll every 3 s while the agent is working; single fetch otherwise.
+    refetchInterval: isWorking ? 3000 : false,
+    // v5: refetchInterval callback receives the Query object — use the simpler boolean
+    // form here since isWorking is already captured in the closure.
+    staleTime: 0,
+  });
+
+  const error = queryError instanceof Error ? queryError.message : queryError ? String(queryError) : null;
 
   // Follow the tail like a terminal unless the user scrolled up.
   useEffect(() => {

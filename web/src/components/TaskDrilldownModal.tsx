@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useQuery } from '@tanstack/react-query';
 import { TaskLog } from '../types';
+import { transport } from '../api/transport';
 import { FileText, Radio, Terminal, X } from 'lucide-react';
 
 const STATE_STYLES: Record<string, string> = {
@@ -52,35 +54,29 @@ interface TaskDrilldownModalProps {
   onClose: () => void;
 }
 
+/** Query key factory for task log polling. */
+export const taskLogKey = (taskId: string) => ['taskLog', taskId] as const;
+
 /** Task Bridge drill-down: full task header plus stdout / stderr / artifacts tabs. */
 export const TaskDrilldownModal: React.FC<TaskDrilldownModalProps> = ({ taskId, onClose }) => {
-  const [data, setData] = useState<TaskLog | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('stdout');
 
-  useEffect(() => {
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const load = async () => {
-      try {
-        const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/log`);
-        const body = await res.json();
-        if (cancelled) return;
-        if (!res.ok) throw new Error(body?.message || `HTTP ${res.status}`);
-        setData(body as TaskLog);
-        setError(null);
-        // Keep streaming while the worker process is alive.
-        if ((body as TaskLog).is_live) timer = setTimeout(load, 3000);
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
-      }
-    };
-    load();
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [taskId]);
+  const { data, error: queryError } = useQuery<TaskLog>({
+    queryKey: taskLogKey(taskId),
+    queryFn: ({ signal }) =>
+      transport<TaskLog>(`/api/tasks/${encodeURIComponent(taskId)}/log`, { signal }),
+    // Poll while the task process is alive; v5 refetchInterval can be a function
+    // receiving the Query — use data directly from closure (updated each render).
+    refetchInterval: (query) => {
+      const d = query.state.data;
+      return d?.is_live ? 3000 : false;
+    },
+    // Modal is always mounted when rendered; no additional enabled guard needed
+    // because the parent only renders it when taskId is truthy.
+    staleTime: 0,
+  });
+
+  const error = queryError instanceof Error ? queryError.message : queryError ? String(queryError) : null;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
@@ -158,7 +154,7 @@ export const TaskDrilldownModal: React.FC<TaskDrilldownModalProps> = ({ taskId, 
 
             {/* Tabs */}
             <div className="px-4 pt-3 flex gap-1" role="tablist">
-              {([
+              {(([
                 ['stdout', 'Stdout Log'],
                 ['stderr', 'Stderr Log'],
                 ['artifacts', `Artifacts (${data?.artifacts.length ?? 0})`],
@@ -176,7 +172,7 @@ export const TaskDrilldownModal: React.FC<TaskDrilldownModalProps> = ({ taskId, 
                 >
                   {label}
                 </button>
-              ))}
+              )))}
             </div>
 
             <div className="p-4 flex-1 min-h-0 flex flex-col">
