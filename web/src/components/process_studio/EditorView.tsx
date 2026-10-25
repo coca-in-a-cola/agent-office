@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ReactFlow,
   Background,
@@ -30,17 +30,15 @@ import {
   X,
 } from 'lucide-react';
 
-import {
-  EditorEdge,
-  EditorGraphDefinition,
-  EditorNode,
-} from '../../editorTypes';
-import { ConflictError, editorApi } from '../../editorApi';
+import { EditorEdge, EditorGraphDefinition, EditorNode } from '../../editorTypes';
+import { ConflictError } from '../../editorApi';
 import { EditorNodeComponent } from './EditorNodeComponent';
 import { NodeCatalogModal } from './NodeCatalogModal';
 import { NodePropertiesPanel } from './NodePropertiesPanel';
 import { ConflictModal } from './ConflictModal';
 import { DEFAULT_TIMEOUT_RECOVERY_GRAPH } from './defaultFixture';
+import { useListDrafts, useGetDraft, shouldInitializeDraft } from '../../hooks/useDraftQueries';
+import { useDraftMutations } from '../../hooks/useDraftMutations';
 
 const nodeTypes: NodeTypes = {
   editorNode: EditorNodeComponent,
@@ -62,9 +60,6 @@ export const EditorViewInner: React.FC<EditorViewProps> = ({
   const [draftId, setDraftId] = useState<string>('draft-release-v1');
   const [revision, setRevision] = useState<number>(1);
   const [isDirty, setIsDirty] = useState<boolean>(false);
-  const [isSaving, setIsSaving] = useState<boolean>(false);
-  const [isValidating, setIsValidating] = useState<boolean>(false);
-  const [isPublishing, setIsPublishing] = useState<boolean>(false);
 
   // History for Undo/Redo
   const [undoStack, setUndoStack] = useState<EditorGraphDefinition[]>([]);
@@ -90,8 +85,56 @@ export const EditorViewInner: React.FC<EditorViewProps> = ({
     localRevision: 0,
   });
 
-  // Track draft list
+  // Track draft list — populated from server via TanStack Query
   const [draftsList, setDraftsList] = useState<string[]>(['draft-release-v1']);
+
+  // Ref that always holds the current {draftId, graph, isDirty} without
+  // introducing stale closures in async callbacks.  Updated synchronously
+  // whenever the corresponding state variables change (see useEffect below).
+  const currentEditorRef = useRef({ draftId, graph, isDirty });
+  useEffect(() => {
+    currentEditorRef.current = { draftId, graph, isDirty };
+  }, [draftId, graph, isDirty]);
+
+  // ---------------------------------------------------------------------------
+  // TanStack Query: draft list + current draft (read side)
+  // ---------------------------------------------------------------------------
+
+  const { drafts: serverDraftsList } = useListDrafts(isDirty);
+  const { draftRecord, isError: isDraftLoadError, error: draftLoadError, refetch: refetchDraft } = useGetDraft(draftId, isDirty);
+
+  // ---------------------------------------------------------------------------
+  // TanStack Query: write mutations (save / validate / publish / bootstrap)
+  // ---------------------------------------------------------------------------
+
+  const { bootstrapMutation, saveMutation, validateMutation, publishMutation } = useDraftMutations();
+
+  // Derived pending flags (replaces manual isSaving/isValidating/isPublishing state)
+  const isSaving = saveMutation.isPending;
+  const isValidating = validateMutation.isPending;
+  const isPublishing = publishMutation.isPending;
+
+  // Sync server draft list → local selector state
+  useEffect(() => {
+    if (serverDraftsList.length > 0) {
+      setDraftsList(serverDraftsList.map((d) => d.draft_id));
+    }
+  }, [serverDraftsList]);
+
+  // Apply server draft to local graph state when first loaded.
+  // Guards:
+  //  1. Only apply when the user has no unsaved local edits (isDirty).
+  //  2. Only apply when the loaded record matches the currently selected draftId
+  //     (prevents a late-arriving response for a previous draft overwriting state
+  //     after the user has already switched to a different draft).
+  useEffect(() => {
+    if (!draftRecord?.graph) return;
+    if (isDirty) return; // never overwrite local edits
+    if (draftRecord.draft_id !== draftId) return; // stale response for a previous draft
+    setGraph(draftRecord.graph);
+    setRevision(draftRecord.revision);
+    setIsDirty(false);
+  }, [draftRecord, isDirty, draftId]);
 
   const showToast = useCallback((text: string, type: 'success' | 'info' | 'error' = 'info') => {
     setToastMessage({ text, type });
@@ -149,44 +192,35 @@ export const EditorViewInner: React.FC<EditorViewProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleUndo, handleRedo]);
 
-  // Fetch initial draft from backend or fallback to fixture
+  // Initial draft auto-create: ONLY when the server returned 404 (draft does not
+  // exist yet). Must NOT fire on 401/403/500/network errors — those indicate
+  // auth or server problems and writing would risk data corruption or silent failure.
+  // Also must NOT fire if the user already has unsaved local edits (isDirty).
+  //
+  // StrictMode dedup: bootstrapMutation.mutateAsync delegates to the shared
+  // _bootstrapRegistry in useDraftMutations — the second StrictMode invoke will
+  // observe the pending promise from the first invoke rather than firing a second
+  // POST.
   useEffect(() => {
-    let cancelled = false;
-    const init = async () => {
-      try {
-        const listRes = await editorApi.listDrafts();
-        if (!cancelled && listRes?.drafts) {
-          const ids = listRes.drafts.map((d) => d.draft_id);
-          if (ids.length > 0) setDraftsList(ids);
-        }
-
-        const draftRes = await editorApi.getDraft(draftId);
-        if (!cancelled && draftRes?.graph) {
-          setGraph(draftRes.graph);
-          setRevision(draftRes.revision);
-          setIsDirty(false);
-          return;
-        }
-      } catch {
-        // Fallback: save default fixture as initial draft if missing
-        try {
-          const saveRes = await editorApi.saveDraft(draftId, DEFAULT_TIMEOUT_RECOVERY_GRAPH);
-          if (!cancelled) {
-            setRevision(saveRes.revision);
-            setGraph(DEFAULT_TIMEOUT_RECOVERY_GRAPH);
-            setIsDirty(false);
-          }
-        } catch {
-          // Local offline fallback
-          if (!cancelled) setGraph(DEFAULT_TIMEOUT_RECOVERY_GRAPH);
-        }
-      }
-    };
-    init();
-    return () => {
-      cancelled = true;
-    };
-  }, [draftId]);
+    if (!isDraftLoadError) return;
+    if (!shouldInitializeDraft(draftLoadError, isDirty)) return;
+    bootstrapMutation.mutateAsync({ draftId, graph: DEFAULT_TIMEOUT_RECOVERY_GRAPH }).then((res) => {
+      // Guard: user may have switched to a different draft or made edits while
+      // the bootstrap POST was in flight. Only apply when still on the same
+      // draft and no unsaved edits have appeared.
+      const cur = currentEditorRef.current;
+      if (cur.draftId !== draftId) return; // draft switched mid-flight
+      if (cur.isDirty) return; // local edits arrived while bootstrapping
+      setRevision(res.revision);
+      setGraph(DEFAULT_TIMEOUT_RECOVERY_GRAPH);
+      setIsDirty(false);
+    }).catch(() => {
+      // Network offline — fixture already in local state; registry already
+      // cleaned up in the hook's .finally() so a future re-mount can retry.
+    });
+  // bootstrapMutation.mutateAsync is stable across renders (identity from TQ).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftId, isDraftLoadError, isDirty]);
 
   // Map parsed validation errors to nodes and ports
   const { nodeErrors, portErrors } = useMemo(() => {
@@ -532,14 +566,32 @@ export const EditorViewInner: React.FC<EditorViewProps> = ({
   }, [reactFlow]);
 
   // Save Draft (Optimistic Concurrency)
+  // Snapshot the current graph and revision at call time. On success, only
+  // clear dirty if:
+  //  a) the draftId hasn't changed (user didn't switch drafts mid-flight), AND
+  //  b) no new edit arrived after this save was dispatched (checked via ref).
+  // Uses currentEditorRef to read up-to-date state inside the async callback
+  // without a stale closure over the snapshot.
   const handleSaveDraft = useCallback(
     async (forceRevision?: number) => {
-      setIsSaving(true);
+      const graphSnapshot = graph;
+      const revisionSnapshot = revision;
+      const submittedDraftId = draftId;
+      const targetRevision = forceRevision !== undefined ? forceRevision : revisionSnapshot;
       try {
-        const targetRevision = forceRevision !== undefined ? forceRevision : revision;
-        const res = await editorApi.saveDraft(draftId, graph, targetRevision);
+        const res = await saveMutation.mutateAsync({ draftId: submittedDraftId, graph: graphSnapshot, revision: targetRevision });
+        // Always update the base revision so the next save can proceed.
         setRevision(res.revision);
-        setIsDirty(false);
+        // Only clear dirty when:
+        //  1. The user hasn't switched to a different draft since we fired.
+        //  2. The graph in state still matches the snapshot we submitted
+        //     (i.e. no new edit arrived while the request was in flight).
+        setIsDirty((currentDirty) => {
+          const cur = currentEditorRef.current;
+          if (cur.draftId !== submittedDraftId) return currentDirty; // draft switched
+          if (currentDirty && cur.graph !== graphSnapshot) return true; // new edit
+          return false;
+        });
         showToast(`Draft saved (rev ${res.revision})`, 'success');
       } catch (err) {
         if (err instanceof ConflictError) {
@@ -547,23 +599,45 @@ export const EditorViewInner: React.FC<EditorViewProps> = ({
             isOpen: true,
             message: err.message,
             serverRevision: err.currentRevision,
-            localRevision: revision,
+            localRevision: revisionSnapshot,
           });
         } else {
           showToast(`Save failed: ${(err as Error).message}`, 'error');
         }
-      } finally {
-        setIsSaving(false);
       }
     },
-    [draftId, graph, revision, showToast]
+    [draftId, graph, revision, saveMutation, showToast]
   );
 
   // Reload Draft from Server
+  // Uses the TanStack Query refetch() to re-populate the cache, then reads the
+  // data directly from the returned QueryObserverResult so we don't re-issue a
+  // second request. Applies only when the reload matched the current draftId and
+  // the user has explicitly chosen to discard local edits (called from the
+  // ConflictModal "Reload" action, which is the only explicit-discard path).
+  // Uses currentEditorRef to check the live draftId, preventing a stale reload
+  // response from clobbering a newer draft the user switched to mid-flight.
   const handleReloadDraft = useCallback(async () => {
-    setIsSaving(true);
+    const submittedDraftId = draftId;
     try {
-      const res = await editorApi.getDraft(draftId);
+      const result = await refetchDraft();
+      // result is the QueryObserverResult — check that the refetch succeeded
+      // and that it returned data for the current draftId (prevents a stale
+      // response for a previous draft being applied after a draft switch).
+      if (result.isError || !result.data) {
+        throw result.error ?? new Error('Reload returned no data');
+      }
+      const res = result.data;
+      // Guard 1: response must match the draft we submitted for.
+      if (res.draft_id !== submittedDraftId) {
+        // Stale response for original draft — skip silently.
+        return;
+      }
+      // Guard 2: user may have switched draft while request was in flight.
+      if (currentEditorRef.current.draftId !== submittedDraftId) {
+        // Draft switched mid-flight — applying would clobber the new draft.
+        return;
+      }
       setGraph(res.graph);
       setRevision(res.revision);
       setIsDirty(false);
@@ -571,16 +645,13 @@ export const EditorViewInner: React.FC<EditorViewProps> = ({
       showToast(`Reloaded draft from server (rev ${res.revision})`, 'info');
     } catch (err) {
       showToast(`Reload failed: ${(err as Error).message}`, 'error');
-    } finally {
-      setIsSaving(false);
     }
-  }, [draftId, showToast]);
+  }, [draftId, refetchDraft, showToast]);
 
   // Validate Graph
   const handleValidate = useCallback(async () => {
-    setIsValidating(true);
     try {
-      const res = await editorApi.validate(graph);
+      const res = await validateMutation.mutateAsync({ graph });
       if (res.valid) {
         setValidationErrors([]);
         showToast('Graph validation clean: valid release grammar!', 'success');
@@ -590,31 +661,26 @@ export const EditorViewInner: React.FC<EditorViewProps> = ({
       }
     } catch (err) {
       showToast(`Validation request failed: ${(err as Error).message}`, 'error');
-    } finally {
-      setIsValidating(false);
     }
-  }, [graph, showToast]);
+  }, [graph, validateMutation, showToast]);
 
   // Publish Graph
   const handlePublish = useCallback(async () => {
-    setIsPublishing(true);
     try {
       // First save if dirty
       if (isDirty) {
         await handleSaveDraft();
       }
 
-      const res = await editorApi.publish({ graph });
+      const res = await publishMutation.mutateAsync({ graph });
       showToast(
         `Published v${res.version}! Hash: ${res.definition_hash.slice(0, 16)}…`,
         'success'
       );
     } catch (err) {
       showToast(`Publish failed: ${(err as Error).message}`, 'error');
-    } finally {
-      setIsPublishing(false);
     }
-  }, [isDirty, handleSaveDraft, graph, showToast]);
+  }, [isDirty, handleSaveDraft, graph, publishMutation, showToast]);
 
   const selectedNode = graph.nodes.find((n) => n.id === selectedNodeId) || null;
 

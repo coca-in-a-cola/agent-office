@@ -34,10 +34,13 @@ export class EditorApiError extends Error {
   }
 }
 
-async function request<T>(path: string, options: { method?: string; body?: string } = {}): Promise<T> {
+async function request<T>(
+  path: string,
+  options: { method?: string; body?: string; signal?: AbortSignal } = {},
+): Promise<T> {
   try {
     const body = options.body !== undefined ? JSON.parse(options.body) : undefined;
-    return await transport<T>(path, { method: options.method || 'GET', body });
+    return await transport<T>(path, { method: options.method || 'GET', body, signal: options.signal });
   } catch (e) {
     if (e instanceof HttpError) {
       const data = e.body as Record<string, unknown> | null;
@@ -59,12 +62,12 @@ async function request<T>(path: string, options: { method?: string; body?: strin
 }
 
 export const editorApi = {
-  async listDrafts(): Promise<{ drafts: DraftSummary[] }> {
-    return request<{ drafts: DraftSummary[] }>('/api/editor/drafts');
+  async listDrafts(signal?: AbortSignal): Promise<{ drafts: DraftSummary[] }> {
+    return request<{ drafts: DraftSummary[] }>('/api/editor/drafts', { signal });
   },
 
-  async getDraft(draftId: string): Promise<DraftRecord> {
-    return request<DraftRecord>(`/api/editor/drafts/${encodeURIComponent(draftId)}`);
+  async getDraft(draftId: string, signal?: AbortSignal): Promise<DraftRecord> {
+    return request<DraftRecord>(`/api/editor/drafts/${encodeURIComponent(draftId)}`, { signal });
   },
 
   async saveDraft(
