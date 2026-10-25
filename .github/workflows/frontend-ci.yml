@@ -1,0 +1,90 @@
+# Frontend CI — AO-BUILD-01
+#
+# Triggers on every push/PR to feature/* and develop branches.
+# Does NOT run the backend (known failing baseline — see Backend Gate below).
+# Produces a build artifact scoped to the commit SHA for traceability.
+#
+# Pinned action SHAs verified 2026-10-25 from upstream tags:
+#   actions/checkout          v4.2.2  → 11bd71901bbe5b1630ceea73d27597364c9af683
+#   oven-sh/setup-bun         v2.0.2  → 735343b667d3e6f658f44d0eca948eb6282f2b76
+#   actions/upload-artifact   v4.6.2  → ea165f8d65b6e75b540449e92b4886f43607fa02
+
+name: Frontend CI
+
+on:
+  push:
+    branches:
+      - 'feature/**'
+      - develop
+  pull_request:
+    branches:
+      - 'feature/**'
+      - develop
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Typecheck · Lint · Test · Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76  # v2.0.2
+        with:
+          bun-version: '1.4.3'
+
+      - name: Install dependencies (frozen lockfile)
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Lint (warnings allowed, errors fail)
+        run: bun run lint
+
+      - name: Frontend tests
+        # Run from repo root so assets_src/ sibling is resolvable by tycoonGeometry tests.
+        # bun test discovers web/src/**/*.test.ts via the web/package.json config.
+        run: bun test web/src
+        working-directory: ${{ github.workspace }}
+        env:
+          CI: true
+
+      - name: Build
+        run: bun run build
+
+      - name: Upload frontend artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: agent-office-web-${{ github.sha }}
+          path: |
+            web/dist/
+            !web/dist/**/*.map
+          if-no-files-found: error
+          retention-days: 14
+
+# ---------------------------------------------------------------------------
+# Backend Gate (PENDING — not wired into this workflow yet)
+# ---------------------------------------------------------------------------
+# The Python backend test suite (python3 -m unittest discover tests) has a
+# known failing baseline as of branch feature/ao-query-01-transport-and-state-polling.
+# Backend CI is intentionally EXCLUDED from this workflow to keep the frontend
+# gate clean and unblocked.
+#
+# Backend gate will be added as a separate job or workflow once the baseline
+# is green. Tracked as a pending item on AO-BUILD-01 (separate ticket pending
+# owner creation).
+# ---------------------------------------------------------------------------
