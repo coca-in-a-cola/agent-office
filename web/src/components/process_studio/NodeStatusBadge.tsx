@@ -1,11 +1,12 @@
 import React from 'react';
 import { NodeState } from '../../workflowTypes';
+import '../../styles/components/node-status-badge.scss';
 
 interface StateStyle {
   label: string;
   stroke: string; // SVG outline / dot colour
   fill: string; // SVG node fill
-  badge: string; // Tailwind classes for the pill
+  badge: string; // Semantic badge modifier class
   pulse: boolean;
 }
 
@@ -16,63 +17,63 @@ export const NODE_STATE_STYLE: Record<NodeState, StateStyle> = {
     label: 'Pending',
     stroke: '#64748b',
     fill: '#1e293b',
-    badge: 'bg-slate-800 border-slate-600 text-slate-300',
+    badge: 'node-status-badge--pending',
     pulse: false,
   },
   running: {
     label: 'Running',
     stroke: '#3b82f6',
     fill: '#172554',
-    badge: 'bg-blue-950 border-blue-500/60 text-blue-300',
+    badge: 'node-status-badge--running',
     pulse: true,
   },
   succeeded: {
     label: 'Succeeded',
     stroke: '#22c55e',
     fill: '#052e16',
-    badge: 'bg-emerald-950 border-emerald-500/60 text-emerald-300',
+    badge: 'node-status-badge--succeeded',
     pulse: false,
   },
   defect: {
     label: 'Defect',
     stroke: '#f59e0b',
     fill: '#451a03',
-    badge: 'bg-amber-950 border-amber-500/60 text-amber-300',
+    badge: 'node-status-badge--defect',
     pulse: false,
   },
   timeout: {
     label: 'Timeout',
     stroke: '#f97316',
     fill: '#431407',
-    badge: 'bg-orange-950 border-orange-500/60 text-orange-300',
+    badge: 'node-status-badge--timeout',
     pulse: false,
   },
   failure: {
     label: 'Failure',
     stroke: '#ef4444',
     fill: '#450a0a',
-    badge: 'bg-red-950 border-red-500/60 text-red-300',
+    badge: 'node-status-badge--failure',
     pulse: false,
   },
   approval_wait: {
     label: 'Approval wait',
     stroke: '#a855f7',
     fill: '#3b0764',
-    badge: 'bg-purple-950 border-purple-500/60 text-purple-300',
+    badge: 'node-status-badge--approval-wait',
     pulse: true,
   },
   cancelled: {
     label: 'Cancelled',
     stroke: '#94a3b8',
     fill: '#0f172a',
-    badge: 'bg-slate-900 border-slate-500/60 text-slate-400 line-through',
+    badge: 'node-status-badge--cancelled',
     pulse: false,
   },
   quota: {
     label: 'Quota wait',
     stroke: '#06b6d4',
     fill: '#083344',
-    badge: 'bg-cyan-950 border-cyan-500/60 text-cyan-300',
+    badge: 'node-status-badge--quota',
     pulse: false,
   },
 };
@@ -83,22 +84,20 @@ export const styleFor = (state: string | undefined): StateStyle =>
 export const NodeStatusBadge: React.FC<{ state: string | undefined }> = ({ state }) => {
   const style = styleFor(state);
   return (
-    <span
-      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[10px] font-semibold uppercase tracking-wide ${style.badge}`}
-    >
-      <span className="relative flex h-2 w-2">
+    <span className={`node-status-badge ${style.badge}`}>
+      <span className="node-status-badge__dot-wrapper">
         {style.pulse && (
           <span
-            className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
+            className="node-status-badge__pulse-ring"
             style={{ backgroundColor: style.stroke }}
           />
         )}
         <span
-          className="relative inline-flex rounded-full h-2 w-2"
+          className="node-status-badge__dot"
           style={{ backgroundColor: style.stroke }}
         />
       </span>
-      {style.label}
+      <span className="node-status-badge__label">{style.label}</span>
     </span>
   );
 };
@@ -120,14 +119,12 @@ export const RunStatusBadge: React.FC<{ status: string; paused?: boolean }> = ({
 }) => {
   const style = styleFor(RUN_STATUS_STATE[status]);
   return (
-    <span className="inline-flex items-center gap-1">
-      <span
-        className={`inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-semibold uppercase tracking-wide ${style.badge}`}
-      >
+    <span className="run-status-badge-group">
+      <span className={`run-status-badge ${style.badge}`}>
         {status.replace('_', ' ')}
       </span>
       {paused && (
-        <span className="inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-semibold uppercase tracking-wide bg-yellow-950 border-yellow-500/60 text-yellow-300">
+        <span className="run-status-badge run-status-badge--paused">
           paused
         </span>
       )}

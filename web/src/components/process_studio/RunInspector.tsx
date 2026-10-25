@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { FileDigit, GitCommit, History, ListTree, ScrollText, Workflow } from 'lucide-react';
 import { Attempt, RunDetail, WorkflowNode } from '../../workflowTypes';
 import { NodeStatusBadge, RunStatusBadge } from './NodeStatusBadge';
+import '../../styles/components/run-inspector.scss';
 
 interface RunInspectorProps {
   detail: RunDetail;
@@ -31,8 +32,8 @@ const Section: React.FC<{ title: string; icon: React.ReactNode; children: React.
   icon,
   children,
 }) => (
-  <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-3 space-y-2">
-    <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+  <div className="ps-run-inspector__section">
+    <span className="ps-run-inspector__section-title">
       {icon}
       {title}
     </span>
@@ -42,22 +43,22 @@ const Section: React.FC<{ title: string; icon: React.ReactNode; children: React.
 
 const KV: React.FC<{ k: string; v: React.ReactNode }> = ({ k, v }) => (
   <>
-    <dt className="text-slate-500">{k}</dt>
-    <dd className="text-slate-200 break-all">{v ?? '—'}</dd>
+    <dt className="ps-run-inspector__dt">{k}</dt>
+    <dd className="ps-run-inspector__dd">{v ?? '—'}</dd>
   </>
 );
 
 const AttemptCard: React.FC<{ attempt: Attempt; current: boolean }> = ({ attempt, current }) => (
   <div
-    className={`rounded-lg border p-2.5 space-y-1.5 ${
-      current ? 'border-cyan-500/60 bg-cyan-950/20' : 'border-slate-800 bg-slate-900/60'
-    } ${attempt.stale ? 'opacity-60' : ''}`}
+    className={`ps-attempt-card ${
+      current ? 'ps-attempt-card--current' : ''
+    } ${attempt.stale ? 'ps-attempt-card--stale' : ''}`}
   >
-    <div className="flex items-center justify-between gap-2">
-      <span className="font-mono text-[11px] text-cyan-300 truncate">{attempt.attempt_id}</span>
+    <div className="ps-attempt-card__header">
+      <span className="ps-attempt-card__id">{attempt.attempt_id}</span>
       <NodeStatusBadge state={ATTEMPT_STATE[attempt.status]} />
     </div>
-    <dl className="grid grid-cols-[96px_1fr] gap-y-0.5 font-mono text-[10px]">
+    <dl className="ps-attempt-card__dl">
       <KV k="task (Bridge)" v={attempt.task_id} />
       <KV k="producer" v={attempt.producer} />
       <KV k="submitted" v={fmtTime(attempt.submitted_at)} />
@@ -66,16 +67,16 @@ const AttemptCard: React.FC<{ attempt: Attempt; current: boolean }> = ({ attempt
       {attempt.stale && <KV k="stale" v="evidence invalidated by a later iteration" />}
     </dl>
     {attempt.reason && (
-      <p className="text-[10px] text-amber-200/90 bg-slate-950/70 rounded px-1.5 py-1 font-mono">
+      <p className="ps-attempt-card__reason">
         {attempt.reason}
       </p>
     )}
     {Object.keys(attempt.artifacts).length > 0 && (
-      <div className="space-y-0.5">
+      <div className="ps-attempt-card__artifacts">
         {Object.entries(attempt.artifacts).map(([name, digest]) => (
-          <div key={name} className="font-mono text-[10px] flex gap-2">
-            <span className="text-emerald-300 shrink-0">{name}</span>
-            <span className="text-slate-400 truncate" title={digest}>
+          <div key={name} className="ps-attempt-card__artifact-row">
+            <span className="ps-attempt-card__artifact-name">{name}</span>
+            <span className="ps-attempt-card__artifact-digest" title={digest}>
               {digest}
             </span>
           </div>
@@ -102,14 +103,14 @@ export const RunInspector: React.FC<RunInspectorProps> = ({ detail, selectedNode
   ];
 
   return (
-    <div className="flex flex-col gap-3 text-xs">
-      <Section title="Run" icon={<Workflow size={13} className="text-cyan-400" />}>
-        <div className="flex items-center justify-between gap-2">
-          <span className="font-mono text-cyan-300 font-semibold">{run.run_id}</span>
+    <div className="ps-run-inspector">
+      <Section title="Run" icon={<Workflow size={13} className="ps-run-inspector__section-icon--run" />}>
+        <div className="ps-run-inspector__run-header">
+          <span className="ps-run-inspector__run-id">{run.run_id}</span>
           <RunStatusBadge status={run.status} paused={run.paused} />
         </div>
-        {run.status_reason && <p className="text-slate-300">{run.status_reason}</p>}
-        <dl className="grid grid-cols-[110px_1fr] gap-y-0.5 font-mono text-[10px]">
+        {run.status_reason && <p className="ps-run-inspector__status-reason">{run.status_reason}</p>}
+        <dl className="ps-run-inspector__dl">
           <KV k="definition" v={`${run.definition_name} v${run.definition_version}`} />
           <KV k="pinned hash" v={<span title={run.definition_hash}>{run.definition_hash.slice(0, 23)}…</span>} />
           <KV k="current node" v={run.current_node} />
@@ -119,30 +120,30 @@ export const RunInspector: React.FC<RunInspectorProps> = ({ detail, selectedNode
         </dl>
       </Section>
 
-      <Section title="Current attempt" icon={<GitCommit size={13} className="text-blue-400" />}>
+      <Section title="Current attempt" icon={<GitCommit size={13} className="ps-run-inspector__section-icon--attempt" />}>
         {current ? (
-          <dl className="grid grid-cols-[110px_1fr] gap-y-0.5 font-mono text-[10px]">
+          <dl className="ps-run-inspector__dl">
             <KV k="attempt id" v={current.attempt_id} />
             <KV k="Task Bridge id" v={current.task_id ?? 'not yet submitted'} />
             <KV k="idempotency" v={current.idempotency_key} />
             <KV k="status" v={current.status} />
           </dl>
         ) : (
-          <p className="text-slate-500 italic">No attempt yet.</p>
+          <p className="ps-run-inspector__empty">No attempt yet.</p>
         )}
       </Section>
 
       {node && (
         <Section
           title={`Node: ${node.name}`}
-          icon={<ListTree size={13} className="text-purple-400" />}
+          icon={<ListTree size={13} className="ps-run-inspector__section-icon--node" />}
         >
-          <div className="flex items-center gap-2">
+          <div className="ps-run-inspector__node-header">
             <NodeStatusBadge state={nodeState?.state} />
-            <span className="text-slate-400 font-mono text-[10px]">role {node.role}</span>
+            <span className="ps-run-inspector__node-role">role {node.role}</span>
           </div>
-          <p className="text-slate-300">{node.goal}</p>
-          <dl className="grid grid-cols-[110px_1fr] gap-y-0.5 font-mono text-[10px]">
+          <p className="ps-run-inspector__node-goal">{node.goal}</p>
+          <dl className="ps-run-inspector__dl">
             <KV k="inputs" v={node.inputs.join(', ') || '—'} />
             <KV k="outputs" v={node.expected_artifacts.join(', ') || '—'} />
             <KV k="executor/model" v={`${node.allowed_executors.join('|')} / ${node.allowed_models.join('|')}`} />
@@ -153,13 +154,14 @@ export const RunInspector: React.FC<RunInspectorProps> = ({ detail, selectedNode
         </Section>
       )}
 
-      <div className="flex gap-1 bg-slate-900 border border-slate-800 rounded-lg p-0.5">
+      <div className="ps-run-inspector__tabs">
         {tabs.map((t) => (
           <button
             key={t.id}
+            type="button"
             onClick={() => setTab(t.id)}
-            className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition ${
-              tab === t.id ? 'bg-cyan-500 text-slate-950' : 'text-slate-400 hover:text-slate-200'
+            className={`ps-run-inspector__tab ${
+              tab === t.id ? 'ps-run-inspector__tab--active' : ''
             }`}
           >
             {t.icon}
@@ -169,8 +171,8 @@ export const RunInspector: React.FC<RunInspectorProps> = ({ detail, selectedNode
       </div>
 
       {tab === 'attempts' && (
-        <div className="space-y-2">
-          {attempts.length === 0 && <p className="text-slate-500 italic">No attempts for this node.</p>}
+        <div className="ps-run-inspector__tab-content">
+          {attempts.length === 0 && <p className="ps-run-inspector__empty">No attempts for this node.</p>}
           {attempts.map((a) => (
             <AttemptCard key={a.attempt_id} attempt={a} current={a.attempt_id === current?.attempt_id} />
           ))}
@@ -178,65 +180,69 @@ export const RunInspector: React.FC<RunInspectorProps> = ({ detail, selectedNode
       )}
 
       {tab === 'timeline' && (
-        <ol className="space-y-1 font-mono text-[10px]">
+        <ol className="ps-run-inspector__timeline">
           {detail.timeline
             .slice()
             .reverse()
             .map((t) => (
-              <li key={t.seq} className="bg-slate-900/70 border border-slate-800 rounded px-2 py-1.5">
-                <div className="flex justify-between gap-2">
-                  <span className="text-slate-200">
+              <li key={t.seq} className="ps-run-inspector__timeline-item">
+                <div className="ps-run-inspector__timeline-header">
+                  <span className="ps-run-inspector__timeline-transition">
                     #{t.seq} {t.from_node ?? '·'} —{t.outcome}→ {t.target}
                   </span>
-                  <span className="text-slate-500">{fmtTime(t.created_at)}</span>
+                  <span className="ps-run-inspector__timeline-time">{fmtTime(t.created_at)}</span>
                 </div>
-                {t.reason && <div className="text-slate-400 break-all">{t.reason}</div>}
+                {t.reason && <div className="ps-run-inspector__timeline-reason">{t.reason}</div>}
               </li>
             ))}
         </ol>
       )}
 
       {tab === 'logs' && (
-        <div className="bg-black/60 border border-slate-800 rounded-lg p-2 font-mono text-[10px] space-y-0.5 max-h-80 overflow-y-auto">
-          {detail.logs.length === 0 && <p className="text-slate-500">No log lines yet.</p>}
+        <div className="ps-run-inspector__logs">
+          {detail.logs.length === 0 && <p className="ps-run-inspector__empty">No log lines yet.</p>}
           {detail.logs.map((l, i) => (
-            <div key={i} className="flex gap-2">
-              <span className="text-slate-500 shrink-0">{fmtTime(l.at)}</span>
+            <div key={i} className="ps-run-inspector__log-row">
+              <span className="ps-run-inspector__log-time">{fmtTime(l.at)}</span>
               <span
-                className={`shrink-0 ${
-                  l.source === 'bridge' ? 'text-blue-300' : l.source === 'engine' ? 'text-amber-300' : 'text-slate-400'
+                className={`ps-run-inspector__log-source ${
+                  l.source === 'bridge'
+                    ? 'ps-run-inspector__log-source--bridge'
+                    : l.source === 'engine'
+                    ? 'ps-run-inspector__log-source--engine'
+                    : ''
                 }`}
               >
                 [{l.source}]
               </span>
-              <span className="text-slate-200 break-all">{l.message}</span>
+              <span className="ps-run-inspector__log-message">{l.message}</span>
             </div>
           ))}
         </div>
       )}
 
       {tab === 'evidence' && (
-        <div className="space-y-2">
+        <div className="ps-run-inspector__tab-content">
           {Object.keys(detail.evidence_digests).length === 0 && (
-            <p className="text-slate-500 italic">No evidence recorded yet.</p>
+            <p className="ps-run-inspector__empty">No evidence recorded yet.</p>
           )}
           {Object.entries(detail.evidence_digests).map(([attemptId, digests]) => (
-            <div key={attemptId} className="bg-slate-900/70 border border-slate-800 rounded-lg p-2 font-mono text-[10px]">
-              <div className="text-cyan-300 mb-1">{attemptId}</div>
+            <div key={attemptId} className="ps-run-inspector__evidence-card">
+              <div className="ps-run-inspector__evidence-attempt">{attemptId}</div>
               {Object.entries(digests).map(([name, digest]) => (
-                <div key={name} className="flex gap-2">
-                  <span className="text-emerald-300 shrink-0">{name}</span>
-                  <span className="text-slate-300 break-all">{digest}</span>
+                <div key={name} className="ps-run-inspector__evidence-row">
+                  <span className="ps-run-inspector__evidence-name">{name}</span>
+                  <span className="ps-run-inspector__evidence-digest">{digest}</span>
                 </div>
               ))}
             </div>
           ))}
           {detail.gates.length > 0 && (
-            <div className="bg-slate-900/70 border border-purple-800/60 rounded-lg p-2 font-mono text-[10px] space-y-1">
-              <div className="text-purple-300">Approval gates</div>
+            <div className="ps-run-inspector__gates-card">
+              <div className="ps-run-inspector__gates-title">Approval gates</div>
               {detail.gates.map((g) => (
-                <div key={g.gate_id} className="text-slate-300 break-all">
-                  {g.gate_id}: <span className="text-purple-200">{g.status}</span>
+                <div key={g.gate_id} className="ps-run-inspector__gate-row">
+                  {g.gate_id}: <span className="ps-run-inspector__gate-status">{g.status}</span>
                   {g.approver ? ` by ${g.approver}` : ''} — {g.scope}
                 </div>
               ))}

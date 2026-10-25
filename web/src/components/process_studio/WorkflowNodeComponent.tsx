@@ -2,6 +2,7 @@ import React from 'react';
 import { Handle, Position, NodeProps } from '@xyflow/react';
 import { LucideIcon, ShieldAlert, Zap, CheckCircle2, Clock, AlertTriangle, XCircle, RotateCcw } from 'lucide-react';
 import { NodeRunState } from '../../workflowTypes';
+import '../../styles/components/workflow-node.scss';
 
 export interface WorkflowNodeData {
   name: string;
@@ -129,15 +130,22 @@ export const WorkflowNodeComponent: React.FC<NodeProps> = ({ data, selected }) =
   const statusConfig = STATUS_CONFIG[state] || STATUS_CONFIG.pending;
   const StatusIcon = statusConfig.icon;
 
+  const isSelected = Boolean(selected || nodeData.isSelected);
+  const isPulse = Boolean(statusConfig.pulse);
+
+  const rootClasses = [
+    'ps-workflow-node',
+    `ps-workflow-node--${state}`,
+    isSelected ? 'ps-workflow-node--selected' : '',
+    isHighlighted ? 'ps-workflow-node--highlighted' : '',
+    isPulse ? 'ps-workflow-node--pulse' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
   return (
     <div
-      className={`relative rounded-xl border p-3.5 shadow-2xl transition-all duration-200 w-56 backdrop-blur-md cursor-pointer ${
-        statusConfig.bg
-      } ${
-        selected || isHighlighted
-          ? 'ring-2 ring-cyan-400 ring-offset-2 ring-offset-neutral-950 border-cyan-400 shadow-cyan-500/20'
-          : statusConfig.border
-      } ${statusConfig.pulse ? 'ring-1 ring-cyan-500/50 shadow-lg shadow-cyan-500/10' : ''}`}
+      className={rootClasses}
       onClick={() => nodeData.onSelect?.(name)}
       title={goal}
     >
@@ -145,43 +153,43 @@ export const WorkflowNodeComponent: React.FC<NodeProps> = ({ data, selected }) =
       <Handle
         type="target"
         position={Position.Left}
-        className="!w-3 !h-3 !bg-neutral-400 !border-2 !border-neutral-900 transition-colors hover:!bg-cyan-400"
+        className="ps-workflow-node__handle"
       />
 
       {/* Current indicator banner */}
       {isCurrent && (
-        <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-cyan-500 text-neutral-950 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider shadow-md animate-pulse">
+        <div className="ps-workflow-node__current-badge">
           Active Step
         </div>
       )}
 
       {/* Header: Title and Role */}
-      <div className="flex items-start justify-between gap-1.5 mb-1.5">
-        <div>
-          <h4 className="font-semibold text-xs text-neutral-100 tracking-tight leading-snug">
+      <div className="ps-workflow-node__header">
+        <div className="ps-workflow-node__info">
+          <h4 className="ps-workflow-node__name">
             {name}
           </h4>
-          <div className="flex items-center gap-1 flex-wrap mt-0.5">
-            <span className="text-[10px] font-mono text-neutral-400 block leading-tight">
+          <div className="ps-workflow-node__meta">
+            <span className="ps-workflow-node__role">
               {role}
             </span>
             {inputScope === 'project' && (
-              <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold bg-indigo-950 text-indigo-300 border border-indigo-700/60 uppercase">
+              <span className="ps-workflow-node__scope-badge ps-workflow-node__scope-badge--project">
                 [PROJECT]
               </span>
             )}
             {inputScope === 'task' && (
-              <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold bg-teal-950 text-teal-300 border border-teal-700/60 uppercase">
+              <span className="ps-workflow-node__scope-badge ps-workflow-node__scope-badge--task">
                 [TASK]
               </span>
             )}
             {inputScope === 'batch' && (
-              <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold bg-purple-950 text-purple-300 border border-purple-700/60 uppercase">
+              <span className="ps-workflow-node__scope-badge ps-workflow-node__scope-badge--batch">
                 [BATCH]
               </span>
             )}
             {isMandatoryPublication && (
-              <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold bg-amber-950 text-amber-300 border border-amber-500/80 shadow-[0_0_8px_rgba(245,158,11,0.4)] uppercase">
+              <span className="ps-workflow-node__scope-badge ps-workflow-node__scope-badge--release-gate">
                 ★ RELEASE GATE
               </span>
             )}
@@ -189,11 +197,11 @@ export const WorkflowNodeComponent: React.FC<NodeProps> = ({ data, selected }) =
         </div>
 
         {/* Badges: Gate and Side-effect */}
-        <div className="flex items-center gap-1">
+        <div className="ps-workflow-node__flags">
           {requiresApproval && (
             <span
               title="Requires manual approval gate"
-              className="p-1 rounded bg-purple-950/80 border border-purple-800/60 text-purple-300"
+              className="ps-workflow-node__flag ps-workflow-node__flag--approval"
             >
               <ShieldAlert size={11} />
             </span>
@@ -201,7 +209,7 @@ export const WorkflowNodeComponent: React.FC<NodeProps> = ({ data, selected }) =
           {sideEffecting && (
             <span
               title="Side-effecting operation (irreversible)"
-              className="p-1 rounded bg-orange-950/80 border border-orange-800/60 text-orange-300"
+              className="ps-workflow-node__flag ps-workflow-node__flag--side-effect"
             >
               <Zap size={11} />
             </span>
@@ -210,16 +218,16 @@ export const WorkflowNodeComponent: React.FC<NodeProps> = ({ data, selected }) =
       </div>
 
       {/* Footer: State badge and attempts counter */}
-      <div className="flex items-center justify-between pt-2 border-t border-neutral-800/70 text-[10px]">
+      <div className="ps-workflow-node__footer">
         <div
-          className={`flex items-center gap-1 px-1.5 py-0.5 rounded font-mono font-medium uppercase tracking-wider ${statusConfig.badgeBg} ${statusConfig.badgeText}`}
+          className={`ps-workflow-node__state-badge ps-workflow-node__state-badge--${state}`}
         >
           {StatusIcon && <StatusIcon size={10} />}
           <span>{state}</span>
         </div>
 
         {runState && runState.attempts > 0 && (
-          <span className="font-mono text-neutral-400 text-[10px]">
+          <span className="ps-workflow-node__attempts">
             it{runState.iteration} · {runState.attempts}×
           </span>
         )}
@@ -229,7 +237,7 @@ export const WorkflowNodeComponent: React.FC<NodeProps> = ({ data, selected }) =
       <Handle
         type="source"
         position={Position.Right}
-        className="!w-3 !h-3 !bg-neutral-400 !border-2 !border-neutral-900 transition-colors hover:!bg-cyan-400"
+        className="ps-workflow-node__handle"
       />
     </div>
   );

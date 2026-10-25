@@ -1,6 +1,7 @@
 import React from 'react';
 import { GitBranch } from 'lucide-react';
 import { AgentStatus, WorkflowAssignment } from '../types';
+import '../styles/components/workflow-assignment-badge.scss';
 
 // Desk status colours shared by the isometric badge and roster pill.
 export const DESK_STATUS_COLOR: Record<AgentStatus, string> = {
@@ -27,6 +28,7 @@ export const WorkflowAssignmentBadge: React.FC<WorkflowAssignmentBadgeProps> = (
   onOpen,
 }) => {
   const color = deskStatusColor(assignment.status);
+  const normalizedStatus = (assignment.status || '').toLowerCase().replace(/_/g, '-');
   return (
     <button
       type="button"
@@ -35,12 +37,14 @@ export const WorkflowAssignmentBadge: React.FC<WorkflowAssignmentBadgeProps> = (
         onOpen(assignment.run_id, assignment.node);
       }}
       title={`${assignment.current_task} (${assignment.run_status}) — open in Process Studio`}
-      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] font-mono font-medium bg-slate-950/80 hover:bg-slate-800 transition"
+      className={`workflow-assignment-badge workflow-assignment-badge--${normalizedStatus}`}
       style={{ borderColor: `${color}80`, color }}
     >
-      <GitBranch size={10} />
-      {assignment.node}
-      {assignment.assignment === 'approver' && <span className="text-slate-400">· approve</span>}
+      <GitBranch size={10} className="workflow-assignment-badge__icon" />
+      <span className="workflow-assignment-badge__node">{assignment.node}</span>
+      {assignment.assignment === 'approver' && (
+        <span className="workflow-assignment-badge__approver">· approve</span>
+      )}
     </button>
   );
 };

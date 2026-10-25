@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Plus, Rocket } from 'lucide-react';
 import { DefinitionSummary, RunSummary } from '../../workflowTypes';
 import { RunStatusBadge } from './NodeStatusBadge';
+import '../../styles/components/workflow-selector.scss';
 
 interface WorkflowSelectorProps {
   runs: RunSummary[];
@@ -39,41 +40,41 @@ export const WorkflowSelector: React.FC<WorkflowSelectorProps> = ({
   const renderRun = (r: RunSummary) => (
     <button
       key={r.run_id}
+      type="button"
       onClick={() => onSelectRun(r.run_id)}
-      className={`w-full text-left rounded-lg border p-2.5 space-y-1 transition ${
-        r.run_id === selectedRunId
-          ? 'border-cyan-500/70 bg-cyan-950/30'
-          : 'border-slate-800 bg-slate-900/60 hover:border-slate-600'
+      className={`ps-workflow-run-card ${
+        r.run_id === selectedRunId ? 'ps-workflow-run-card--selected' : ''
       }`}
     >
-      <div className="flex items-center justify-between gap-2">
-        <span className="font-mono text-[11px] text-cyan-300 truncate">{r.run_id}</span>
+      <div className="ps-workflow-run-card__header">
+        <span className="ps-workflow-run-card__id">{r.run_id}</span>
         <RunStatusBadge status={r.status} paused={r.paused} />
       </div>
-      <div className="text-[11px] text-slate-300 truncate">{r.goal || '—'}</div>
-      <div className="text-[10px] text-slate-500 font-mono">
+      <div className="ps-workflow-run-card__goal">{r.goal || '—'}</div>
+      <div className="ps-workflow-run-card__meta">
         {r.definition_name} v{r.definition_version} · {r.current_node ?? 'done'} · {r.attempt_count} attempts
       </div>
     </button>
   );
 
   return (
-    <div className="flex flex-col gap-3 text-xs h-full">
+    <div className="ps-workflow-selector">
       <button
+        type="button"
         onClick={() => setFormOpen((v) => !v)}
-        className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-cyan-500 text-slate-950 font-semibold hover:bg-cyan-400 transition"
+        className="ps-workflow-selector__create-btn"
       >
         <Plus size={14} /> New release run
       </button>
 
       {formOpen && (
-        <form onSubmit={submit} className="bg-slate-950/80 border border-slate-800 rounded-xl p-3 space-y-2">
-          <label className="block space-y-1">
-            <span className="text-slate-400">Workflow definition</span>
+        <form onSubmit={submit} className="ps-workflow-selector__form">
+          <label className="ps-workflow-selector__field">
+            <span className="ps-workflow-selector__field-label">Workflow definition</span>
             <select
               value={chosenHash}
               onChange={(e) => setDefinitionHash(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-slate-100"
+              className="ps-workflow-selector__select"
             >
               {definitions.map((d) => (
                 <option key={d.definition_hash} value={d.definition_hash}>
@@ -83,46 +84,46 @@ export const WorkflowSelector: React.FC<WorkflowSelectorProps> = ({
               ))}
             </select>
           </label>
-          <label className="block space-y-1">
-            <span className="text-slate-400">Goal</span>
+          <label className="ps-workflow-selector__field">
+            <span className="ps-workflow-selector__field-label">Goal</span>
             <textarea
               required
               value={goal}
               onChange={(e) => setGoal(e.target.value)}
               rows={2}
-              className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-slate-100"
+              className="ps-workflow-selector__textarea"
               placeholder="What should this release ship?"
             />
           </label>
-          <label className="block space-y-1">
-            <span className="text-slate-400">Repository path</span>
+          <label className="ps-workflow-selector__field">
+            <span className="ps-workflow-selector__field-label">Repository path</span>
             <input
               value={repo}
               onChange={(e) => setRepo(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 font-mono text-slate-100"
+              className="ps-workflow-selector__input ps-workflow-selector__input--mono"
               placeholder="/path/to/repo"
             />
           </label>
           <button
             type="submit"
             disabled={busy || !goal.trim() || !chosenHash}
-            className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-semibold hover:bg-emerald-500 disabled:opacity-40"
+            className="ps-workflow-selector__submit-btn"
           >
             <Rocket size={13} /> Start run
           </button>
         </form>
       )}
 
-      <div className="flex-1 overflow-y-auto space-y-3 pr-1">
-        <div className="space-y-1.5">
-          <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+      <div className="ps-workflow-selector__runs">
+        <div className="ps-workflow-selector__section">
+          <div className="ps-workflow-selector__section-title">
             Active ({active.length})
           </div>
-          {active.length === 0 && <p className="text-slate-500 italic">No active runs.</p>}
+          {active.length === 0 && <p className="ps-workflow-selector__empty">No active runs.</p>}
           {active.map(renderRun)}
         </div>
-        <div className="space-y-1.5">
-          <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+        <div className="ps-workflow-selector__section">
+          <div className="ps-workflow-selector__section-title">
             History ({history.length})
           </div>
           {history.map(renderRun)}

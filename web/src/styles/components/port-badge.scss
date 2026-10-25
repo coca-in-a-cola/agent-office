@@ -1,0 +1,186 @@
+// PortBadge component styles for Process Studio
+// Semantic classes for node input/output port handles and badges.
+// Distinguishes control (diamond), data (circle), and status (rounded rectangle) ports.
+
+@keyframes ps-port-ping {
+  75%, 100% {
+    box-shadow: 0 0 0 4px rgba(244, 63, 94, 0);
+  }
+}
+
+.ps-port-badge {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.25rem;
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  line-height: 1;
+
+  &--input {
+    flex-direction: row;
+  }
+
+  &--output {
+    flex-direction: row-reverse;
+    text-align: right;
+  }
+
+  &__handle {
+    position: relative;
+    left: auto;
+    top: auto;
+    right: auto;
+    bottom: auto;
+    width: 0.875rem !important;
+    height: 0.875rem !important;
+    border-width: 2px !important;
+    border-style: solid !important;
+    border-color: #0f172a !important;
+    transition: transform 0.15s ease;
+
+    &:hover {
+      transform: scale(1.25);
+    }
+
+    // Control: Diamond (solid, rotated 45deg)
+    &--control {
+      border-radius: 0 !important;
+      transform: rotate(45deg);
+
+      &:hover {
+        transform: rotate(45deg) scale(1.25);
+      }
+    }
+
+    // Status: Hollow rounded rectangle
+    &--status {
+      border-radius: 0.125rem !important;
+      background-color: transparent !important;
+    }
+
+    // Data: Circle
+    &--data {
+      border-radius: 9999px !important;
+    }
+
+    &--error {
+      box-shadow: 0 0 0 2px #f43f5e, 0 0 0 3px #020617;
+      animation: ps-port-ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
+    }
+
+    // Control outcome fills
+    &--exec_in {
+      background-color: #06b6d4;
+      border-color: #67e8f9;
+    }
+    &--success,
+    &--accept_partial {
+      background-color: #10b981;
+      border-color: #6ee7b7;
+    }
+    &--defect {
+      background-color: #f59e0b;
+      border-color: #fcd34d;
+    }
+    &--timeout {
+      background-color: #f97316;
+      border-color: #fdba74;
+    }
+    &--failure,
+    &--stop {
+      background-color: #f43f5e;
+      border-color: #fda4af;
+    }
+    &--loop_body,
+    &--recover {
+      background-color: #a855f7;
+      border-color: #d8b4fe;
+    }
+    &--loop_exit,
+    &--quota_exhausted {
+      background-color: #dc2626;
+      border-color: #f87171;
+    }
+    &--control-default {
+      background-color: #94a3b8;
+      border-color: #e2e8f0;
+    }
+
+    // Status border
+    &--status-badge {
+      background-color: rgba(251, 191, 36, 0.2) !important;
+      border-color: #fbbf24 !important;
+    }
+
+    // Data type fills
+    &--data-ChangeRequest {
+      background-color: #3b82f6;
+      border-color: #93c5fd;
+    }
+    &--data-CommitRef {
+      background-color: #6366f1;
+      border-color: #a5b4fc;
+    }
+    &--data-PartialResult {
+      background-color: #14b8a6;
+      border-color: #5eead4;
+    }
+    &--data-EvidenceRef {
+      background-color: #10b981;
+      border-color: #6ee7b7;
+    }
+    &--data-ArtifactRef {
+      background-color: #8b5cf6;
+      border-color: #c4b5fd;
+    }
+    &--data-TaskRef {
+      background-color: #0ea5e9;
+      border-color: #7dd3fc;
+    }
+    &--data-default {
+      background-color: #0891b2;
+      border-color: #67e8f9;
+    }
+  }
+
+  &__content {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  &__name {
+    font-weight: 600;
+    color: #e2e8f0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    &--error {
+      color: #fb7185;
+    }
+  }
+
+  &__type {
+    font-size: 9px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    &--cyan { color: #67e8f9; }
+    &--emerald { color: #6ee7b7; }
+    &--amber { color: #fcd34d; }
+    &--orange { color: #fdba74; }
+    &--rose { color: #fda4af; }
+    &--purple { color: #d8b4fe; }
+    &--red { color: #f87171; }
+    &--slate { color: #cbd5e1; }
+    &--blue { color: #93c5fd; }
+    &--indigo { color: #a5b4fc; }
+    &--teal { color: #5eead4; }
+    &--violet { color: #c4b5fd; }
+    &--sky { color: #7dd3fc; }
+  }
+}

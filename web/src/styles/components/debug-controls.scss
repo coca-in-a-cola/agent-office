@@ -1,0 +1,206 @@
+// DebugControls component styles for Process Studio
+// Semantic SCSS replacing Tailwind utilities for run actions and approval modal.
+
+.ps-debug-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ps-debug-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  border-radius: 0.5rem;
+  border-width: 1px;
+  border-style: solid;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 600;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+
+  &--pause {
+    background-color: rgba(66, 32, 6, 0.6); // bg-yellow-950/60
+    border-color: rgba(202, 138, 4, 0.5); // border-yellow-600/50
+    color: #fef08a; // text-yellow-200
+
+    &:hover:not(:disabled) {
+      background-color: rgba(113, 63, 18, 0.6); // hover:bg-yellow-900/60
+    }
+  }
+
+  &--resume {
+    background-color: rgba(2, 44, 34, 0.6); // bg-emerald-950/60
+    border-color: rgba(5, 150, 105, 0.5); // border-emerald-600/50
+    color: #a7f3d0; // text-emerald-200
+
+    &:hover:not(:disabled) {
+      background-color: rgba(6, 78, 59, 0.6); // hover:bg-emerald-900/60
+    }
+  }
+
+  &--cancel {
+    background-color: rgba(69, 10, 10, 0.6); // bg-red-950/60
+    border-color: rgba(220, 38, 38, 0.5); // border-red-600/50
+    color: #fecaca; // text-red-200
+
+    &:hover:not(:disabled) {
+      background-color: rgba(127, 29, 29, 0.6); // hover:bg-red-900/60
+    }
+  }
+
+  &--retry {
+    background-color: rgba(67, 20, 7, 0.6); // bg-orange-950/60
+    border-color: rgba(234, 88, 12, 0.5); // border-orange-600/50
+    color: #fed7aa; // text-orange-200
+
+    &:hover:not(:disabled) {
+      background-color: rgba(124, 45, 18, 0.6); // hover:bg-orange-900/60
+    }
+  }
+
+  &--approve {
+    background-color: rgba(59, 7, 100, 0.6); // bg-purple-950/60
+    border-color: rgba(168, 85, 247, 0.6); // border-purple-500/60
+    color: #e9d5ff; // text-purple-200
+
+    &:hover:not(:disabled) {
+      background-color: rgba(88, 28, 135, 0.6); // hover:bg-purple-900/60
+    }
+  }
+
+  &--modal-close {
+    border-color: #334155;
+    color: #cbd5e1;
+
+    &:hover:not(:disabled) {
+      background-color: #1e293b;
+    }
+  }
+
+  &--modal-submit {
+    background-color: #9333ea; // bg-purple-600
+    border-color: #c084fc; // border-purple-400
+    color: #ffffff;
+
+    &:hover:not(:disabled) {
+      background-color: #a855f7; // hover:bg-purple-500
+    }
+  }
+}
+
+.ps-approval-modal {
+  &__backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+  }
+
+  &__card {
+    width: 460px;
+    max-width: calc(100vw - 2rem);
+    background-color: #0f172a; // bg-slate-900
+    border: 1px solid rgba(168, 85, 247, 0.5); // border-purple-500/50
+    border-radius: 0.75rem;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    font-size: 0.75rem;
+  }
+
+  &__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  &__title {
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: #e9d5ff;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0;
+  }
+
+  &__dismiss {
+    color: #94a3b8;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+
+    &:hover {
+      color: #ffffff;
+    }
+  }
+
+  &__details {
+    display: grid;
+    grid-template-columns: 110px 1fr;
+    row-gap: 0.375rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 11px;
+    margin: 0;
+  }
+
+  &__term {
+    color: #94a3b8;
+  }
+
+  &__desc {
+    color: #e2e8f0;
+    word-break: break-all;
+    margin: 0;
+  }
+
+  &__field {
+    display: block;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  &__field-label {
+    color: #94a3b8;
+  }
+
+  &__input {
+    width: 100%;
+    background-color: #020617;
+    border: 1px solid #334155;
+    border-radius: 0.25rem;
+    padding: 0.375rem 0.5rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    color: #f1f5f9;
+    box-sizing: border-box;
+
+    &:focus {
+      outline: none;
+      border-color: #a855f7;
+    }
+  }
+
+  &__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    padding-top: 0.25rem;
+  }
+}

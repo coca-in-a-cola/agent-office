@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { CheckCircle2, Pause, Play, RotateCcw, ShieldCheck, Square, X } from 'lucide-react';
 import { RunCommand } from '../../workflowApi';
 import { RunDetail } from '../../workflowTypes';
+import '../../styles/components/debug-controls.scss';
 
 interface DebugControlsProps {
   detail: RunDetail;
@@ -10,9 +11,6 @@ interface DebugControlsProps {
   sideEffecting: boolean;
   onCommand: (command: RunCommand, body?: Record<string, unknown>) => Promise<void>;
 }
-
-const buttonBase =
-  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition disabled:opacity-35 disabled:cursor-not-allowed';
 
 export const DebugControls: React.FC<DebugControlsProps> = ({
   detail,
@@ -54,9 +52,10 @@ export const DebugControls: React.FC<DebugControlsProps> = ({
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="ps-debug-controls">
       <button
-        className={`${buttonBase} bg-yellow-950/60 border-yellow-600/50 text-yellow-200 hover:bg-yellow-900/60`}
+        type="button"
+        className="ps-debug-btn ps-debug-btn--pause"
         disabled={busy || !actions.pause}
         onClick={() => void onCommand('pause', { reason: 'paused from Process Studio' })}
         title="Stop coordinator advancement of this run"
@@ -64,21 +63,24 @@ export const DebugControls: React.FC<DebugControlsProps> = ({
         <Pause size={13} /> Pause
       </button>
       <button
-        className={`${buttonBase} bg-emerald-950/60 border-emerald-600/50 text-emerald-200 hover:bg-emerald-900/60`}
+        type="button"
+        className="ps-debug-btn ps-debug-btn--resume"
         disabled={busy || !actions.resume}
         onClick={() => void onCommand('resume')}
       >
         <Play size={13} /> Resume
       </button>
       <button
-        className={`${buttonBase} bg-red-950/60 border-red-600/50 text-red-200 hover:bg-red-900/60`}
+        type="button"
+        className="ps-debug-btn ps-debug-btn--cancel"
         disabled={busy || !actions.cancel}
         onClick={confirmCancel}
       >
         <Square size={13} /> Cancel
       </button>
       <button
-        className={`${buttonBase} bg-orange-950/60 border-orange-600/50 text-orange-200 hover:bg-orange-900/60`}
+        type="button"
+        className="ps-debug-btn ps-debug-btn--retry"
         disabled={busy || !actions.retry}
         onClick={retry}
         title="Authorized bounded retry of the failed / timed-out node"
@@ -86,7 +88,8 @@ export const DebugControls: React.FC<DebugControlsProps> = ({
         <RotateCcw size={13} /> Retry
       </button>
       <button
-        className={`${buttonBase} bg-purple-950/60 border-purple-500/60 text-purple-200 hover:bg-purple-900/60`}
+        type="button"
+        className="ps-debug-btn ps-debug-btn--approve"
         disabled={busy || !actions.approve}
         onClick={openApproval}
       >
@@ -94,48 +97,55 @@ export const DebugControls: React.FC<DebugControlsProps> = ({
       </button>
 
       {approvalOpen && gate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="w-[460px] bg-slate-900 border border-purple-500/50 rounded-xl shadow-2xl p-5 space-y-4 text-xs">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-purple-200 flex items-center gap-2">
+        <div className="ps-approval-modal__backdrop">
+          <div className="ps-approval-modal__card">
+            <div className="ps-approval-modal__header">
+              <h3 className="ps-approval-modal__title">
                 <ShieldCheck size={16} /> Approve gate
               </h3>
-              <button onClick={() => setApprovalOpen(false)} className="text-slate-400 hover:text-white">
+              <button
+                type="button"
+                onClick={() => setApprovalOpen(false)}
+                className="ps-approval-modal__dismiss"
+                aria-label="Close dialog"
+              >
                 <X size={16} />
               </button>
             </div>
-            <dl className="grid grid-cols-[110px_1fr] gap-y-1.5 font-mono text-[11px]">
-              <dt className="text-slate-400">Gate</dt>
-              <dd className="text-slate-200 break-all">{gate.gate_id}</dd>
-              <dt className="text-slate-400">Node</dt>
-              <dd className="text-slate-200">{gate.node} (iteration {gate.iteration})</dd>
-              <dt className="text-slate-400">Evidence</dt>
-              <dd className="text-slate-200 break-all">{gate.evidence_digest || '—'}</dd>
+            <dl className="ps-approval-modal__details">
+              <dt className="ps-approval-modal__term">Gate</dt>
+              <dd className="ps-approval-modal__desc">{gate.gate_id}</dd>
+              <dt className="ps-approval-modal__term">Node</dt>
+              <dd className="ps-approval-modal__desc">{gate.node} (iteration {gate.iteration})</dd>
+              <dt className="ps-approval-modal__term">Evidence</dt>
+              <dd className="ps-approval-modal__desc">{gate.evidence_digest || '—'}</dd>
             </dl>
-            <label className="block space-y-1">
-              <span className="text-slate-400">Approver ID</span>
+            <label className="ps-approval-modal__field">
+              <span className="ps-approval-modal__field-label">Approver ID</span>
               <input
                 value={approver}
                 onChange={(e) => setApprover(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 font-mono text-slate-100"
+                className="ps-approval-modal__input"
               />
             </label>
-            <label className="block space-y-1">
-              <span className="text-slate-400">Scope (must match the gate exactly)</span>
+            <label className="ps-approval-modal__field">
+              <span className="ps-approval-modal__field-label">Scope (must match the gate exactly)</span>
               <input
                 value={scope}
                 onChange={(e) => setScope(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 font-mono text-slate-100"
+                className="ps-approval-modal__input"
               />
             </label>
-            <div className="flex justify-end gap-2 pt-1">
+            <div className="ps-approval-modal__actions">
               <button
+                type="button"
                 onClick={() => setApprovalOpen(false)}
-                className={`${buttonBase} border-slate-700 text-slate-300 hover:bg-slate-800`}
+                className="ps-debug-btn ps-debug-btn--modal-close"
               >
                 Close
               </button>
               <button
+                type="button"
                 disabled={busy || !approver.trim() || !scope.trim()}
                 onClick={async () => {
                   await onCommand('approve', {
@@ -145,7 +155,7 @@ export const DebugControls: React.FC<DebugControlsProps> = ({
                   });
                   setApprovalOpen(false);
                 }}
-                className={`${buttonBase} bg-purple-600 border-purple-400 text-white hover:bg-purple-500`}
+                className="ps-debug-btn ps-debug-btn--modal-submit"
               >
                 <CheckCircle2 size={13} /> Approve
               </button>

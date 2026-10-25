@@ -11,6 +11,7 @@ import {
   NodeTypes,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+import '../../styles/components/graph-view.scss';
 
 import { NodeRunState, WorkflowDefinition } from '../../workflowTypes';
 import { WorkflowNodeComponent } from './WorkflowNodeComponent';
@@ -201,7 +202,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
   );
 
   return (
-    <div className="relative w-full h-[560px] bg-neutral-950 rounded-xl border border-neutral-800 shadow-2xl overflow-hidden">
+    <div className="ps-graph-view">
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -216,17 +217,17 @@ export const GraphView: React.FC<GraphViewProps> = ({
         zoomOnPinch={true}
         panOnScroll={false}
         proOptions={{ hideAttribution: true }}
-        className="bg-neutral-950"
+        className="ps-graph-view__flow"
       >
         <Background
           variant={BackgroundVariant.Dots}
           gap={20}
           size={1.5}
           color="#334155"
-          className="opacity-40"
+          className="ps-graph-view__background"
         />
         <Controls
-          className="!bg-neutral-900 !border !border-neutral-800 !rounded-lg !shadow-xl [&>button]:!bg-neutral-900 [&>button]:!border-b [&>button]:!border-neutral-800 [&>button]:!text-neutral-300 [&>button:hover]:!bg-neutral-800 [&>button:hover]:!text-cyan-400"
+          className="ps-graph-view__controls"
           showInteractive={false}
         />
         <MiniMap
@@ -243,7 +244,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
             return '#475569';
           }}
           maskColor="rgba(0, 0, 0, 0.75)"
-          className="!bg-neutral-900/90 !border !border-neutral-800 !rounded-lg !shadow-xl"
+          className="ps-graph-view__minimap"
         />
       </ReactFlow>
     </div>
