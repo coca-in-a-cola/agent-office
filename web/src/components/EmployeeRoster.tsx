@@ -14,6 +14,7 @@ import {
   ExternalLink,
   Terminal,
 } from 'lucide-react';
+import '../styles/components/employee-roster.scss';
 
 interface EmployeeRosterProps {
   agents: Agent[];
@@ -23,9 +24,21 @@ interface EmployeeRosterProps {
   onOpenWorkflow?: (runId: string, node: string, source?: string) => void;
 }
 
-// Per-employee avatar theme (unselected state); WebDev gets the cyan/blue web look.
-const AVATAR_THEME: Record<string, string> = {
-  webdev: 'bg-sky-950/80 border-sky-500/60 text-sky-300',
+const AGENT_ROLE_AVATAR_MODIFIERS: Record<string, string> = {
+  webdev: 'roster-avatar--webdev',
+};
+
+const getAvatarModifier = (agent: Agent, isSelected: boolean): string => {
+  if (isSelected) {
+    return 'roster-avatar--selected';
+  }
+  const idKey = (agent.id || '').toLowerCase();
+  const roleKey = (agent.role || '').toLowerCase();
+  return (
+    AGENT_ROLE_AVATAR_MODIFIERS[idKey] ||
+    AGENT_ROLE_AVATAR_MODIFIERS[roleKey] ||
+    'roster-avatar--default'
+  );
 };
 
 export const EmployeeRoster: React.FC<EmployeeRosterProps> = ({
@@ -58,42 +71,40 @@ export const EmployeeRoster: React.FC<EmployeeRosterProps> = ({
   return (
     <aside className="employee-roster" aria-label="Employee roster">
       {/* Header */}
-      <div className="p-4 border-b border-slate-800 bg-[#0f172a]/60 backdrop-blur-md">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <Users className="text-cyan-400" size={18} />
-            <h2 className="font-semibold text-slate-100 text-sm tracking-wide uppercase">
+      <div className="roster-header">
+        <div className="roster-header__top">
+          <div className="roster-header__title-group">
+            <Users className="roster-header__icon" size={18} />
+            <h2 className="roster-header__title">
               Employee Roster
             </h2>
           </div>
-          <span className="text-xs font-mono bg-slate-800 text-cyan-300 px-2.5 py-0.5 rounded-full border border-slate-700">
+          <span className="roster-header__count">
             {agents.length} AGENTS
           </span>
         </div>
 
         {/* Search Bar */}
-        <div className="relative mb-3">
+        <div className="roster-search">
           <Search
             size={14}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"
+            className="roster-search__icon"
           />
           <input
             type="text"
             placeholder="Search agents, roles, or models..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-900/80 border border-slate-700/80 rounded-md text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition"
+            className="roster-search__input"
           />
         </div>
 
         {/* Status Filter Badges */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-[11px]">
+        <div className="roster-filter-bar">
           <button
             onClick={() => setStatusFilter('all')}
-            className={`px-2 py-0.5 rounded-md font-medium transition ${
-              statusFilter === 'all'
-                ? 'bg-cyan-500 text-slate-950 font-semibold'
-                : 'bg-slate-800/80 text-slate-400 hover:text-slate-200'
+            className={`roster-filter-btn ${
+              statusFilter === 'all' ? 'roster-filter-btn--active-all' : ''
             }`}
           >
             All ({agents.length})
@@ -104,10 +115,8 @@ export const EmployeeRoster: React.FC<EmployeeRosterProps> = ({
               <button
                 key={st}
                 onClick={() => setStatusFilter(statusFilter === st ? 'all' : st)}
-                className={`px-2 py-0.5 rounded-md capitalize font-medium whitespace-nowrap transition ${
-                  statusFilter === st
-                    ? 'bg-slate-700 text-white border border-slate-600'
-                    : 'bg-slate-900/60 text-slate-400 hover:text-slate-200'
+                className={`roster-filter-btn ${
+                  statusFilter === st ? 'roster-filter-btn--active-status' : ''
                 }`}
               >
                 {st.replace('_', ' ')} {count > 0 && `(${count})`}
@@ -118,9 +127,9 @@ export const EmployeeRoster: React.FC<EmployeeRosterProps> = ({
       </div>
 
       {/* Roster Cards List */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+      <div className="roster-list">
         {filteredAgents.length === 0 ? (
-          <div className="text-center py-12 text-slate-500 text-xs">
+          <div className="roster-empty">
             No agents found matching the current filter.
           </div>
         ) : (
@@ -134,39 +143,32 @@ export const EmployeeRoster: React.FC<EmployeeRosterProps> = ({
               <div
                 key={agent.id}
                 onClick={() => onSelectAgent(agent.id)}
-                className={`group relative rounded-xl border p-3.5 transition-all duration-200 cursor-pointer ${
-                  isSelected
-                    ? 'bg-slate-850/90 border-cyan-400/80 shadow-[0_0_20px_rgba(6,182,212,0.15)] ring-1 ring-cyan-400/30'
-                    : 'bg-slate-900/60 border-slate-800/90 hover:border-slate-700 hover:bg-slate-900/90'
+                className={`roster-card ${
+                  isSelected ? 'roster-card--selected' : ''
                 }`}
               >
                 {/* Top Row: Name, Role, and Status Badge */}
-                <div className="flex items-start justify-between gap-2 mb-2.5">
-                  <div className="flex items-center gap-2.5">
+                <div className="roster-card__top">
+                  <div className="roster-card__identity">
                     {/* Role Avatar Pill */}
                     <div
-                      className={`w-9 h-9 rounded-lg flex items-center justify-center font-bold text-sm border shadow-sm ${
-                        isSelected
-                          ? 'bg-cyan-950/80 border-cyan-500/60 text-cyan-300'
-                          : AVATAR_THEME[agent.id.toLowerCase()]
-                            ?? 'bg-slate-800 border-slate-700 text-slate-300 group-hover:border-slate-600'
-                      }`}
+                      className={`roster-avatar ${getAvatarModifier(agent, isSelected)}`}
                     >
                       {agent.profile_name ? agent.profile_name[0] : 'A'}
                     </div>
-                    <div>
-                      <h3 className="font-semibold text-slate-100 text-sm flex items-center gap-1.5">
+                    <div className="roster-card__name-block">
+                      <h3 className="roster-card__name">
                         {agent.profile_name}
                         {isSelected && (
-                          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
+                          <span className="roster-card__name-ping" />
                         )}
                       </h3>
-                      <p className="text-xs text-slate-400 font-medium">{agent.role}</p>
+                      <p className="roster-card__role">{agent.role}</p>
                       {assignment && onOpenWorkflow && (
-                        <div className="mt-1 flex items-center gap-1">
+                        <div className="roster-card__workflow-row">
                           <WorkflowAssignmentBadge assignment={assignment} onOpen={openWorkflow} />
                           {(agent.workflow_assignments?.length ?? 0) > 1 && (
-                            <span className="text-[10px] text-slate-500 font-mono">
+                            <span className="roster-card__workflow-more">
                               +{(agent.workflow_assignments?.length ?? 1) - 1}
                             </span>
                           )}
@@ -180,9 +182,9 @@ export const EmployeeRoster: React.FC<EmployeeRosterProps> = ({
                 </div>
 
                 {/* Model / Provider Pill */}
-                <div className="flex items-center gap-1.5 mb-2.5 text-[11px] text-slate-400">
-                  <Cpu size={12} className="text-slate-500 shrink-0" />
-                  <span className="font-mono bg-slate-950/80 px-2 py-0.5 rounded border border-slate-800 text-slate-300 truncate max-w-[280px]">
+                <div className="roster-card__model-row">
+                  <Cpu size={12} className="roster-card__model-icon" />
+                  <span className="roster-card__model-pill">
                     {agent.current_model || 'anthropic/claude-3-5-sonnet'}
                   </span>
                 </div>
@@ -196,101 +198,103 @@ export const EmployeeRoster: React.FC<EmployeeRosterProps> = ({
                       openWorkflow(assignment.run_id, assignment.node);
                     }}
                     disabled={!onOpenWorkflow}
-                    className="w-full text-left mb-2.5 bg-slate-950/70 border border-cyan-900/70 hover:border-cyan-500/70 rounded-lg p-2.5 transition"
+                    className="roster-task-block roster-task-block--workflow"
                     title="Open in Process Studio"
                   >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="flex items-center gap-1 text-[10px] font-semibold tracking-wider text-cyan-400 uppercase font-mono">
+                    <div className="roster-task-block__header">
+                      <span className="roster-task-block__label roster-task-block__label--workflow">
                         <GitBranch size={11} />
                         Workflow Step
                       </span>
-                      <span className="flex items-center gap-1 text-[10px] font-mono text-slate-400">
+                      <span className="roster-task-block__meta">
                         {assignment.run_id}
                         <ExternalLink size={10} />
                       </span>
                     </div>
-                    <p className="text-xs text-slate-200 font-medium line-clamp-2">
+                    <p className="roster-task-block__title">
                       {agent.current_task ?? assignment.current_task}
                     </p>
-                    <div className="flex items-center gap-2 mt-1 text-[10px] text-slate-500">
-                      <span>Run: <strong className="text-slate-400">{assignment.run_status}</strong></span>
+                    <div className="roster-task-block__footer">
+                      <span>Run: <strong>{assignment.run_status}</strong></span>
                       {agent.active_task_id && (
-                        <span>• Bridge: <strong className="text-slate-400 font-mono">{agent.active_task_id}</strong></span>
+                        <span>• Bridge: <strong>{agent.active_task_id}</strong></span>
                       )}
                     </div>
                   </button>
                 ) : agent.bridge_task ? (
-                  <div className="mb-2.5 bg-slate-950/70 border border-emerald-900/70 rounded-lg p-2.5">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="flex items-center gap-1 text-[10px] font-semibold tracking-wider text-emerald-400 uppercase font-mono">
+                  <div className="roster-task-block roster-task-block--bridge">
+                    <div className="roster-task-block__header">
+                      <span className="roster-task-block__label roster-task-block__label--bridge">
                         <Terminal size={11} />
                         Bridge Task
                       </span>
-                      <span className="text-[10px] font-mono text-slate-400 truncate max-w-[140px]">
+                      <span className="roster-task-block__meta">
                         {agent.bridge_task.task_id}
                       </span>
                     </div>
-                    <p className="text-xs text-slate-200 font-medium line-clamp-2">
+                    <p className="roster-task-block__title">
                       {agent.bridge_task.title}
                     </p>
-                    <div className="flex items-center gap-2 mt-1 text-[10px] text-slate-500">
-                      <span>Executor: <strong className="text-slate-400">{agent.bridge_task.executor || '?'}</strong></span>
+                    <div className="roster-task-block__footer">
+                      <span>Executor: <strong>{agent.bridge_task.executor || '?'}</strong></span>
                       <span>• {agent.bridge_task.is_live ? 'live' : agent.bridge_task.state}</span>
                     </div>
                   </div>
                 ) : agent.active_task ? (
-                  <div className="mb-2.5 bg-slate-950/70 border border-slate-800/90 rounded-lg p-2.5">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="flex items-center gap-1 text-[10px] font-semibold tracking-wider text-cyan-400 uppercase font-mono">
+                  <div className="roster-task-block roster-task-block--task">
+                    <div className="roster-task-block__header">
+                      <span className="roster-task-block__label roster-task-block__label--task">
                         <CheckSquare size={11} />
                         Active Task
                       </span>
-                      <span className="text-[10px] font-mono bg-cyan-950/80 text-cyan-300 px-1.5 py-0.2 rounded border border-cyan-800/50">
+                      <span className="roster-task-block__meta-pill">
                         {agent.active_task.kanban_task_id || 'TASK'}
                       </span>
                     </div>
-                    <p className="text-xs text-slate-200 font-medium line-clamp-2">
+                    <p className="roster-task-block__title">
                       {agent.active_task.title || 'In progress task execution'}
                     </p>
-                    <div className="flex items-center gap-2 mt-1 text-[10px] text-slate-500">
-                      <span>Status: <strong className="text-slate-400">{agent.active_task.status}</strong></span>
+                    <div className="roster-task-block__footer">
+                      <span>Status: <strong>{agent.active_task.status}</strong></span>
                       {agent.active_task.priority && (
-                        <span>• Priority: <strong className="text-slate-400">{agent.active_task.priority}</strong></span>
+                        <span>• Priority: <strong>{agent.active_task.priority}</strong></span>
                       )}
                     </div>
                   </div>
                 ) : (
-                  <div className="mb-2.5 py-1.5 px-2.5 rounded bg-slate-950/40 border border-slate-850 text-[11px] text-slate-500 italic flex items-center gap-1.5">
-                    <Clock size={11} />
-                    No active task assigned
+                  <div className="roster-task-block roster-task-block--empty">
+                    <div className="roster-task-block__empty-text">
+                      <Clock size={11} />
+                      No active task assigned
+                    </div>
                   </div>
                 )}
 
                 {/* Last Tool Call / Activity Log */}
                 {agent.last_tool_call ? (
-                  <div className="bg-slate-950/50 rounded-lg p-2 border border-slate-800/60 text-[11px]">
-                    <div className="flex items-center justify-between text-slate-400 mb-1">
-                      <span className="flex items-center gap-1 text-[10px] font-mono text-amber-400 font-medium">
+                  <div className="roster-tool-block">
+                    <div className="roster-tool-block__header">
+                      <span className="roster-tool-block__label">
                         <Wrench size={11} />
                         Last Tool Call
                       </span>
                       {agent.last_tool_call.latency_ms !== undefined && (
-                        <span className="font-mono text-[9px] text-slate-500">
+                        <span className="roster-tool-block__latency">
                           {Math.round(agent.last_tool_call.latency_ms)}ms
                         </span>
                       )}
                     </div>
-                    <div className="font-mono text-xs text-cyan-300 font-medium truncate">
+                    <div className="roster-tool-block__name">
                       {agent.last_tool_call.tool_name || agent.last_tool_call.event_type}
                     </div>
                     {agent.last_tool_call.tool_input_preview && (
-                      <p className="text-[10px] text-slate-400 truncate mt-0.5 font-mono">
+                      <p className="roster-tool-block__preview">
                         in: {agent.last_tool_call.tool_input_preview}
                       </p>
                     )}
                   </div>
                 ) : (
-                  <div className="text-[10px] text-slate-500 italic flex items-center gap-1 mt-1">
+                  <div className="roster-no-telemetry">
                     <Sparkles size={10} />
                     Awaiting telemetry events
                   </div>
@@ -298,17 +302,17 @@ export const EmployeeRoster: React.FC<EmployeeRosterProps> = ({
 
                 {/* Capabilities Tags */}
                 {agent.capabilities && agent.capabilities.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-2.5 pt-2 border-t border-slate-800/60">
+                  <div className="roster-capabilities">
                     {agent.capabilities.slice(0, 4).map((cap, i) => (
                       <span
                         key={i}
-                        className="text-[10px] font-mono bg-slate-800/60 text-slate-400 px-1.5 py-0.5 rounded"
+                        className="roster-capability-tag"
                       >
                         {cap}
                       </span>
                     ))}
                     {agent.capabilities.length > 4 && (
-                      <span className="text-[10px] text-slate-500 font-mono">
+                      <span className="roster-capability-overflow">
                         +{agent.capabilities.length - 4}
                       </span>
                     )}

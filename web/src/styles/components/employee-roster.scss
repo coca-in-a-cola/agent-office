@@ -1,0 +1,568 @@
+// EmployeeRoster component styles
+// Semantic classes for the sidebar agent roster — replaces Tailwind utility strings.
+// Depends on office.scss CSS vars (:root block).
+
+// --- Additional roster-specific tokens ---
+:root {
+  --roster-width:          400px;
+  --roster-card-radius:    12px;
+  --roster-avatar-size:    36px;
+  --roster-header-bg:      rgba(15, 23, 42, 0.60);
+
+  // Card states
+  --roster-card-bg:        rgba(15, 23, 42, 0.60);
+  --roster-card-bg-hover:  rgba(15, 23, 42, 0.90);
+  --roster-card-border:    rgba(30, 41, 59, 0.90);
+  --roster-card-border-hover: #334155;
+  --roster-card-selected-bg:    rgba(17, 30, 56, 0.90);
+  --roster-card-selected-border: rgba(34, 211, 238, 0.80);
+  --roster-card-selected-ring:   rgba(34, 211, 238, 0.30);
+  --roster-card-selected-glow:   rgba(6, 182, 212, 0.15);
+
+  // Avatar
+  --roster-avatar-webdev-bg:     rgba(8, 22, 46, 0.80);
+  --roster-avatar-webdev-border: rgba(14, 165, 233, 0.60);
+  --roster-avatar-webdev-text:   #7dd3fc;
+  --roster-avatar-default-bg:    #1e293b;
+  --roster-avatar-default-border:#334155;
+  --roster-avatar-default-text:  #cbd5e1;
+  --roster-avatar-selected-bg:   rgba(8, 47, 73, 0.80);
+  --roster-avatar-selected-border: rgba(8, 145, 178, 0.60);
+  --roster-avatar-selected-text:   #67e8f9;
+
+  // Search / filter
+  --roster-input-bg:     rgba(15, 23, 42, 0.80);
+  --roster-input-border: rgba(51, 65, 85, 0.80);
+
+  // Task blocks
+  --roster-task-bg:         rgba(2, 6, 23, 0.70);
+  --roster-task-border-wf:  rgba(21, 94, 117, 0.70);
+  --roster-task-border-wf-hover: rgba(6, 182, 212, 0.70);
+  --roster-task-border-bridge: rgba(6, 78, 59, 0.70);
+  --roster-task-border-task: rgba(30, 41, 59, 0.90);
+  --roster-task-border-empty: rgba(30, 41, 59, 0.60);
+
+  // Tool call block
+  --roster-tool-bg: rgba(2, 6, 23, 0.50);
+
+  // Model pill
+  --roster-model-bg:    rgba(2, 6, 23, 0.80);
+  --roster-model-border:#1e293b;
+}
+
+// --- Animations ---
+
+@keyframes er-ping {
+  75%, 100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+// --- Roster shell (aside) ---
+
+.employee-roster {
+  display: flex;
+  flex-direction: column;
+  width: var(--roster-width);
+  height: 100%;
+  overflow: hidden;
+  // Border/bg are applied by .office-roster in office.scss
+}
+
+// --- Header ---
+
+.roster-header {
+  padding: 16px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--roster-header-bg);
+  backdrop-filter: blur(12px);
+  flex-shrink: 0;
+}
+
+.roster-header__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.roster-header__title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.roster-header__icon {
+  color: var(--accent-cyan);
+}
+
+.roster-header__title {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.roster-header__count {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  background: #1e293b;
+  color: #67e8f9;
+  padding: 2px 10px;
+  border-radius: 9999px;
+  border: 1px solid #334155;
+}
+
+// --- Search ---
+
+.roster-search {
+  position: relative;
+  margin-bottom: 12px;
+}
+
+.roster-search__icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #64748b;
+  pointer-events: none;
+}
+
+.roster-search__input {
+  width: 100%;
+  padding: 6px 12px 6px 32px;
+  font-size: 12px;
+  background: var(--roster-input-bg);
+  border: 1px solid var(--roster-input-border);
+  border-radius: 6px;
+  color: #e2e8f0;
+  outline: none;
+  transition: border-color 0.15s;
+  font-family: inherit;
+
+  &::placeholder { color: #64748b; }
+
+  &:focus {
+    border-color: var(--accent-cyan);
+  }
+}
+
+// --- Status filter bar ---
+
+.roster-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  font-size: 11px;
+  // hide scrollbar on webkit
+  &::-webkit-scrollbar { display: none; }
+  scrollbar-width: none;
+}
+
+.roster-filter-btn {
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+  background: rgba(30, 41, 59, 0.80);
+  color: #94a3b8;
+  font-size: 11px;
+  font-family: inherit;
+
+  &:hover {
+    color: #e2e8f0;
+  }
+
+  &--active-all {
+    background: var(--accent-cyan);
+    color: #041019;
+    font-weight: 600;
+  }
+
+  &--active-status {
+    background: #334155;
+    color: #fff;
+    border: 1px solid #475569;
+  }
+}
+
+// --- Card list ---
+
+.roster-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.roster-empty {
+  text-align: center;
+  padding: 48px 0;
+  color: #64748b;
+  font-size: 12px;
+}
+
+// --- Agent card ---
+
+.roster-card {
+  position: relative;
+  border-radius: var(--roster-card-radius);
+  border: 1px solid var(--roster-card-border);
+  padding: 14px;
+  background: var(--roster-card-bg);
+  cursor: pointer;
+  transition: all 0.2s;
+
+  &:hover {
+    border-color: var(--roster-card-border-hover);
+    background: var(--roster-card-bg-hover);
+  }
+
+  &--selected {
+    background: var(--roster-card-selected-bg);
+    border-color: var(--roster-card-selected-border);
+    box-shadow:
+      0 0 20px var(--roster-card-selected-glow),
+      0 0 0 1px var(--roster-card-selected-ring);
+  }
+}
+
+// --- Card top row: name/role/avatar + status badge ---
+
+.roster-card__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.roster-card__identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+// --- Avatar pill ---
+
+.roster-avatar {
+  width:  var(--roster-avatar-size);
+  height: var(--roster-avatar-size);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 14px;
+  border: 1px solid;
+  flex-shrink: 0;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+
+  // State-driven via modifier + data attribute
+  &--default {
+    background: var(--roster-avatar-default-bg);
+    border-color: var(--roster-avatar-default-border);
+    color: var(--roster-avatar-default-text);
+  }
+
+  &--default:where(.roster-card:hover &) {
+    border-color: #475569;
+  }
+
+  &--webdev {
+    background: var(--roster-avatar-webdev-bg);
+    border-color: var(--roster-avatar-webdev-border);
+    color: var(--roster-avatar-webdev-text);
+  }
+
+  &--selected {
+    background: var(--roster-avatar-selected-bg);
+    border-color: var(--roster-avatar-selected-border);
+    color: var(--roster-avatar-selected-text);
+  }
+}
+
+.roster-card__name-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.roster-card__name {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.roster-card__name-ping {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #22d3ee;
+  animation: er-ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+.roster-card__role {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.roster-card__workflow-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.roster-card__workflow-more {
+  font-size: 10px;
+  color: #64748b;
+  font-family: var(--font-mono);
+}
+
+// --- Model pill row ---
+
+.roster-card__model-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.roster-card__model-icon {
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+.roster-card__model-pill {
+  font-family: var(--font-mono);
+  background: var(--roster-model-bg);
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--roster-model-border);
+  color: #cbd5e1;
+  font-size: 11px;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+// --- Task blocks ---
+
+.roster-task-block {
+  margin-bottom: 10px;
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--roster-task-bg);
+  border: 1px solid;
+
+  &--workflow {
+    border-color: var(--roster-task-border-wf);
+    cursor: pointer;
+    width: 100%;
+    text-align: left;
+    font-family: inherit;
+    transition: border-color 0.15s;
+
+    &:hover:not([disabled]) {
+      border-color: var(--roster-task-border-wf-hover);
+    }
+  }
+
+  &--bridge {
+    border-color: var(--roster-task-border-bridge);
+  }
+
+  &--task {
+    border-color: var(--roster-task-border-task);
+  }
+
+  &--empty {
+    border-color: var(--roster-task-border-empty);
+    background: rgba(2, 6, 23, 0.40);
+    padding: 6px 10px;
+  }
+}
+
+.roster-task-block__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.roster-task-block__label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-family: var(--font-mono);
+
+  &--workflow { color: #22d3ee; }
+  &--bridge   { color: #34d399; }
+  &--task     { color: #22d3ee; }
+}
+
+.roster-task-block__meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: #94a3b8;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.roster-task-block__meta-pill {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  background: rgba(8, 47, 73, 0.80);
+  color: #67e8f9;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(8, 145, 178, 0.50);
+}
+
+.roster-task-block__title {
+  font-size: 12px;
+  color: var(--text-primary);
+  font-weight: 500;
+  // 2-line clamp
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.roster-task-block__footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 10px;
+  color: #64748b;
+
+  strong { color: #94a3b8; }
+}
+
+.roster-task-block__empty-text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #64748b;
+  font-style: italic;
+}
+
+// --- Tool call block ---
+
+.roster-tool-block {
+  background: var(--roster-tool-bg);
+  border-radius: 8px;
+  padding: 8px;
+  border: 1px solid rgba(30, 41, 59, 0.60);
+  font-size: 11px;
+}
+
+.roster-tool-block__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.roster-tool-block__label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  color: #fbbf24;
+}
+
+.roster-tool-block__latency {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: #64748b;
+}
+
+.roster-tool-block__name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: #67e8f9;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.roster-tool-block__preview {
+  font-size: 10px;
+  color: #94a3b8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 2px;
+  font-family: var(--font-mono);
+}
+
+.roster-no-telemetry {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  font-size: 10px;
+  color: #64748b;
+  font-style: italic;
+}
+
+// --- Capabilities tags ---
+
+.roster-capabilities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(30, 41, 59, 0.60);
+}
+
+.roster-capability-tag {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  background: rgba(30, 41, 59, 0.60);
+  color: #94a3b8;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.roster-capability-overflow {
+  font-size: 10px;
+  color: #64748b;
+  font-family: var(--font-mono);
+}
