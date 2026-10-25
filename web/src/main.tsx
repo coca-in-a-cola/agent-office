@@ -1,7 +1,8 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './App';
-import './styles/component-compat.css';
+import './styles/base.scss';
+import './styles/office-svg.scss';
 import './styles/office.scss';
 import './styles/mobile.scss';
 import './styles/automaton.scss';

@@ -6,7 +6,7 @@
 /** 1. Water Cooler: Cyan translucent carboy with rising bubbles, silver spigots, drip tray */
 export function WaterCoolerProp() {
   return (
-    <g id="prop-water-cooler" className="office-prop select-none">
+    <g id="prop-water-cooler" className="office-prop">
       <defs>
         <linearGradient id="coolerWaterGrad" x1="0%" y1="0%" x2="100%" y2="100%">
           <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.85" />
@@ -102,7 +102,7 @@ export function WaterCoolerProp() {
 /** 2. Server Rack: 19" black blade rack with blinking LEDs and cooling grille */
 export function ServerRackProp() {
   return (
-    <g id="prop-server-rack" className="office-prop select-none">
+    <g id="prop-server-rack" className="office-prop">
       <defs>
         <linearGradient id="serverSheen" x1="0%" y1="0%" x2="100%" y2="100%">
           <stop offset="0%" stopColor="#ffffff" stopOpacity="0.18" />
@@ -194,7 +194,7 @@ export function ServerRackProp() {
 /** 3. Coffee Machine: Sleek espresso machine with portafilter, cup, and rising steam path */
 export function CoffeeMachineProp() {
   return (
-    <g id="prop-coffee-machine" className="office-prop select-none">
+    <g id="prop-coffee-machine" className="office-prop">
       <defs>
         <linearGradient id="coffeeSteelLit" x1="0%" y1="0%" x2="100%" y2="100%">
           <stop offset="0%" stopColor="#f8fafc" />
@@ -292,7 +292,7 @@ export function CoffeeMachineProp() {
 /** 4. Whiteboard: Rolling magnetic whiteboard with marker tray and KPI diagram lines */
 export function WhiteboardProp() {
   return (
-    <g id="prop-whiteboard" className="office-prop select-none">
+    <g id="prop-whiteboard" className="office-prop">
       {/* Floor Contact Shadow */}
       <ellipse cx="0" cy="3" rx="18" ry="6.5" fill="rgba(0, 0, 0, 0.32)" />
 
@@ -365,7 +365,7 @@ export function WhiteboardProp() {
 /** 5. Ficus Plant: Architectural geometric pot with lush green isometric leaves */
 export function FicusPlantProp() {
   return (
-    <g id="prop-ficus-plant" className="office-prop select-none">
+    <g id="prop-ficus-plant" className="office-prop">
       {/* Floor Contact Shadow */}
       <ellipse cx="0" cy="3" rx="14" ry="7" fill="rgba(0, 0, 0, 0.35)" />
 
@@ -457,7 +457,7 @@ export function FicusPlantProp() {
 /** 6. Sofa: Retro upholstered two-seater lounge sofa with wooden peg legs */
 export function SofaProp() {
   return (
-    <g id="prop-sofa" className="office-prop select-none">
+    <g id="prop-sofa" className="office-prop">
       <defs>
         <linearGradient id="sofaBackLit" x1="0%" y1="0%" x2="100%" y2="100%">
           <stop offset="0%" stopColor="#f59e0b" />

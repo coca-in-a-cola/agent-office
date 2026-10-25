@@ -40,7 +40,7 @@ export const FurnitureToolbar: React.FC<FurnitureToolbarProps> = ({
 
   return (
     <aside className="furniture-toolbar" aria-label="Furniture Editor Toolbar">
-      <div className="toolbar-section items-section">
+      <div className="toolbar-section">
         <span className="section-title">Place Furniture:</span>
         <div className="item-buttons-group">
           {items.map((item) => (

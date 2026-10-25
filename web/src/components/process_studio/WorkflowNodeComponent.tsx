@@ -20,95 +20,18 @@ export interface WorkflowNodeData {
 }
 
 const STATUS_CONFIG: Record<string, {
-  border: string;
-  bg: string;
-  text: string;
-  badgeBg: string;
-  badgeText: string;
   icon: LucideIcon | null;
   pulse: boolean;
 }> = {
-  pending: {
-    border: 'border-neutral-700',
-    bg: 'bg-neutral-900/90',
-    text: 'text-neutral-400',
-    badgeBg: 'bg-neutral-800',
-    badgeText: 'text-neutral-400',
-    icon: null,
-    pulse: false,
-  },
-  running: {
-    border: 'border-cyan-500',
-    bg: 'bg-cyan-950/40',
-    text: 'text-cyan-300',
-    badgeBg: 'bg-cyan-900/60',
-    badgeText: 'text-cyan-300',
-    icon: null,
-    pulse: true,
-  },
-  succeeded: {
-    border: 'border-emerald-500',
-    bg: 'bg-emerald-950/30',
-    text: 'text-emerald-300',
-    badgeBg: 'bg-emerald-900/50',
-    badgeText: 'text-emerald-300',
-    icon: CheckCircle2,
-    pulse: false,
-  },
-  defect: {
-    border: 'border-amber-500',
-    bg: 'bg-amber-950/30',
-    text: 'text-amber-300',
-    badgeBg: 'bg-amber-900/50',
-    badgeText: 'text-amber-300',
-    icon: RotateCcw,
-    pulse: false,
-  },
-  timeout: {
-    border: 'border-orange-500',
-    bg: 'bg-orange-950/30',
-    text: 'text-orange-300',
-    badgeBg: 'bg-orange-900/50',
-    badgeText: 'text-orange-300',
-    icon: Clock,
-    pulse: false,
-  },
-  failure: {
-    border: 'border-rose-500',
-    bg: 'bg-rose-950/30',
-    text: 'text-rose-300',
-    badgeBg: 'bg-rose-900/50',
-    badgeText: 'text-rose-300',
-    icon: XCircle,
-    pulse: false,
-  },
-  cancelled: {
-    border: 'border-neutral-700',
-    bg: 'bg-neutral-900/60',
-    text: 'text-neutral-500',
-    badgeBg: 'bg-neutral-800',
-    badgeText: 'text-neutral-500',
-    icon: XCircle,
-    pulse: false,
-  },
-  quota: {
-    border: 'border-amber-600',
-    bg: 'bg-amber-950/30',
-    text: 'text-amber-400',
-    badgeBg: 'bg-amber-900/50',
-    badgeText: 'text-amber-400',
-    icon: AlertTriangle,
-    pulse: false,
-  },
-  approval_wait: {
-    border: 'border-purple-500',
-    bg: 'bg-purple-950/40',
-    text: 'text-purple-300',
-    badgeBg: 'bg-purple-900/60',
-    badgeText: 'text-purple-300',
-    icon: AlertTriangle,
-    pulse: true,
-  },
+  pending:       { icon: null,         pulse: false },
+  running:       { icon: null,         pulse: true  },
+  succeeded:     { icon: CheckCircle2, pulse: false },
+  defect:        { icon: RotateCcw,    pulse: false },
+  timeout:       { icon: Clock,        pulse: false },
+  failure:       { icon: XCircle,      pulse: false },
+  cancelled:     { icon: XCircle,      pulse: false },
+  quota:         { icon: AlertTriangle,pulse: false },
+  approval_wait: { icon: AlertTriangle,pulse: true  },
 };
 
 export const WorkflowNodeComponent: React.FC<NodeProps> = ({ data, selected }) => {

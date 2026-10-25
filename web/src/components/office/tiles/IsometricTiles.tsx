@@ -498,7 +498,7 @@ export function IsometricFloorTile({
   return (
     <g
       id={`tile-floor-${tile.x}-${tile.y}`}
-      className="cursor-pointer select-none"
+      className="tile-interactive"
       onClick={onClick}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
@@ -513,7 +513,7 @@ export function IsometricFloorTile({
         fill={pal.fill}
         stroke={isHovered ? '#fbbf24' : pal.stroke}
         strokeWidth={isHovered ? 1.8 : 0.9}
-        className="transition-colors duration-150"
+        className="tile-surface-transition"
       />
 
       {/* Surface Inlay Artwork */}
@@ -576,7 +576,7 @@ export function IsometricWallTile({
   return (
     <g
       id={`tile-wall-${tile.type}-${tile.x}-${tile.y}`}
-      className="cursor-pointer select-none"
+      className="tile-interactive"
       onClick={onClick}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
@@ -795,7 +795,7 @@ export function IsometricDoorTile({
   return (
     <g
       id={`tile-door-${tile.type}-${tile.x}-${tile.y}`}
-      className="cursor-pointer select-none"
+      className="tile-interactive"
       onClick={onClick}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
@@ -1077,7 +1077,7 @@ export function RenderIsometricTile({
         stroke={isHovered ? '#fbbf24' : 'rgba(71, 85, 105, 0.25)'}
         strokeWidth={isHovered ? 1.5 : 0.8}
         strokeDasharray={isHovered ? undefined : '2 2'}
-        className="cursor-pointer transition-colors duration-150"
+        className="tile-marker-interactive"
         onClick={onClick}
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}

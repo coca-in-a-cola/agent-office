@@ -802,7 +802,7 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
               opacity="0.6"
             />
             <circle cx="0" cy="5" r="9" fill="#020617" stroke="#38bdf8" strokeWidth="1" />
-            <circle cx="0" cy="5" r="3.5" fill="#38bdf8" className="animate-pulse" />
+            <circle cx="0" cy="5" r="3.5" fill="#38bdf8" className="loc-svg-pulse" />
 
             {/* Corridor Center Guidance Tracks (Laser Line for Courier) */}
             <line x1="0" y1="-120" x2="0" y2="130" stroke="#0ea5e9" strokeWidth="1" strokeDasharray="6 4" opacity="0.45" />
@@ -926,7 +926,7 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
               <polygon points="-18,-3 -18,8 0,17 0,6" fill="#0f0701" />
               {/* Coffee machine */}
               <rect x="-5" y="-12" width="10" height="9" rx="1.5" fill="#334155" stroke="#f59e0b" strokeWidth="0.8" />
-              <circle cx="0" cy="-6" r="1.5" fill="#ef4444" className="animate-pulse" />
+              <circle cx="0" cy="-6" r="1.5" fill="#ef4444" className="loc-svg-pulse" />
             </g>
           </g>
 
@@ -1005,9 +1005,9 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
               <polygon points="14,-17 14,8 0,15 0,-10" fill="#0f172a" />
               <polygon points="-14,-17 -14,8 0,15 0,-10" fill="#090d16" />
               {/* Glowing green coolant pipe */}
-              <line x1="0" y1="-8" x2="0" y2="10" stroke="#34d399" strokeWidth="2" className="animate-pulse" />
+              <line x1="0" y1="-8" x2="0" y2="10" stroke="#34d399" strokeWidth="2" className="loc-svg-pulse" />
               <circle cx="8" cy="-5" r="1.5" fill="#10b981" />
-              <circle cx="8" cy="2" r="1.5" fill="#34d399" className="animate-ping" />
+              <circle cx="8" cy="2" r="1.5" fill="#34d399" className="loc-svg-ping" />
             </g>
           </g>
 
@@ -1154,12 +1154,12 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
               {[ -18, -8, 2, 12 ].map((slotY, i) => (
                 <g key={`slot-${i}`}>
                   <line x1="4" y1={slotY} x2="18" y2={slotY - 7} stroke="#475569" strokeWidth="1.2" />
-                  <circle cx="8" cy={slotY - 1} r="1.2" fill={i % 2 === 0 ? '#34d399' : '#38bdf8'} className="animate-pulse" />
+                  <circle cx="8" cy={slotY - 1} r="1.2" fill={i % 2 === 0 ? '#34d399' : '#38bdf8'} className="loc-svg-pulse" />
                   <circle cx="14" cy={slotY - 4} r="1.2" fill={i === 2 ? '#f43f5e' : '#34d399'} />
                 </g>
               ))}
               {/* Blue Rotating Beacon on top of Rack */}
-              <circle cx="0" cy="-34" r="3" fill="#38bdf8" className="animate-ping" opacity="0.85" />
+              <circle cx="0" cy="-34" r="3" fill="#38bdf8" className="loc-svg-ping" opacity="0.85" />
               <circle cx="0" cy="-34" r="2.5" fill="#2563eb" />
             </g>
 
@@ -1229,7 +1229,7 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
               {/* Cathode Screen */}
               <polygon points="-16,-7 -2,-14 -2,-2 -16,5" fill="#083344" stroke="#06b6d4" strokeWidth="1" />
               {/* Green Sine Wave */}
-              <path d="M -14,-1 Q -11,-7 -9,-2 T -4,-4" fill="none" stroke="#34d399" strokeWidth="1.2" className="animate-pulse" />
+              <path d="M -14,-1 Q -11,-7 -9,-2 T -4,-4" fill="none" stroke="#34d399" strokeWidth="1.2" className="loc-svg-pulse" />
               {/* Control Dials */}
               <circle cx="6" cy="-2" r="1.5" fill="#94a3b8" />
               <circle cx="12" cy="-5" r="1.5" fill="#94a3b8" />
@@ -1320,7 +1320,7 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
             <g transform="translate(65, 175)">
               <ellipse cx="0" cy="5" rx="5" ry="2.5" fill="#1e293b" stroke="#0ea5e9" strokeWidth="0.8" />
               <line x1="0" y1="5" x2="0" y2="-20" stroke="#64748b" strokeWidth="1.5" />
-              <circle cx="0" cy="-22" r="3.5" fill="#10b981" className="animate-pulse" />
+              <circle cx="0" cy="-22" r="3.5" fill="#10b981" className="loc-svg-pulse" />
               <circle cx="0" cy="-22" r="2" fill="#34d399" />
             </g>
           </g>
@@ -1460,7 +1460,7 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
             />
 
             {/* Courier Automaton moving along the track */}
-            <g className="cursor-pointer">
+            <g className="office-courier-interactive">
               <animateMotion
                 dur="6s"
                 repeatCount="indefinite"
@@ -1591,7 +1591,7 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
               <g
                 key={id}
                 transform={`translate(${pos.x}, ${pos.y})`}
-                className="cursor-pointer transition-all duration-200"
+                className="office-desk-interactive"
                 onClick={(e) => {
                   e.stopPropagation();
                   handleDeskClick(id);
@@ -1611,7 +1611,7 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
                     stroke={isSelected ? conf.accentColor : '#64748b'}
                     strokeWidth={isSelected ? '2.5' : '1.5'}
                     strokeDasharray={isSelected ? '6 3' : 'none'}
-                    className={isSelected ? 'animate-pulse' : ''}
+                    className={isSelected ? 'loc-svg-pulse' : ''}
                     opacity="0.85"
                   />
                 )}
@@ -1669,7 +1669,7 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
                     <polygon points="-46,15 -46,26 0,49 0,38" fill="#0f172a" />
                     <polygon points="-18,4 18,4 14,-18 -14,-18" fill="url(#screenArtGrad)" stroke="#ec4899" strokeWidth="1.5" />
                     <line x1="5" y1="1" x2="15" y2="7" stroke="#f472b6" strokeWidth="2" strokeLinecap="round" />
-                    <circle cx="28" cy="-5" r="7" fill="none" stroke="#f472b6" strokeWidth="1" strokeDasharray="2 2" className="animate-spin" />
+                    <circle cx="28" cy="-5" r="7" fill="none" stroke="#f472b6" strokeWidth="1" strokeDasharray="2 2" className="loc-svg-spin" />
                   </g>
                 )}
 
@@ -1745,14 +1745,14 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
                     fill="#0f172a"
                     stroke={isSelected ? conf.accentColor : '#334155'}
                     strokeWidth={isSelected ? '2' : '1'}
-                    className="drop-shadow-lg"
+                    className="loc-label-shadow--lg"
                   />
                   <circle
                     cx="-42"
                     cy="-4"
                     r="4"
                     fill={statusColor}
-                    className={isWorking || isBlocked ? 'animate-ping' : ''}
+                    className={isWorking || isBlocked ? 'loc-svg-ping' : ''}
                   />
                   <circle
                     cx="-42"
@@ -1796,7 +1796,7 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
                         fill="#020617"
                         stroke={statusColor}
                         strokeWidth="1.5"
-                        className={isWorking ? 'animate-pulse' : ''}
+                        className={isWorking ? 'loc-svg-pulse' : ''}
                       />
                       <polygon points="0,10 -4,6 4,6" fill={statusColor} />
                       <text
@@ -1825,7 +1825,7 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
                         fill="#1e293b"
                         stroke="#475569"
                         strokeWidth="1"
-                        className="drop-shadow-md"
+                        className="loc-label-shadow--md"
                       />
                       <polygon points="0,6 -4,0 4,0" fill="#1e293b" />
                       <text
@@ -1865,30 +1865,30 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
                 aria-label={`${popoverAgent.profile_name} workflow step`}
                 data-testid="workflow-popover"
                 onClick={(e) => e.stopPropagation()}
-                className="h-full bg-slate-900/95 border border-cyan-500/60 rounded-xl shadow-2xl p-3 text-[11px] text-slate-200 flex flex-col gap-1.5"
+                className="isometric-popover"
               >
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold text-slate-100">{popoverAgent.profile_name}</span>
-                  <div className="flex items-center gap-1.5">
+                <div className="isometric-popover__header">
+                  <span className="isometric-popover__agent-name">{popoverAgent.profile_name}</span>
+                  <div className="isometric-popover__header-actions">
                     <StatusBadge status={popoverAgent.status} size="sm" showAnimation={false} />
                     <button
                       onClick={() => setPopoverId(null)}
-                      className="text-slate-400 hover:text-white"
+                      className="isometric-popover__close-btn"
                       aria-label="Close"
                     >
                       <X size={12} />
                     </button>
                   </div>
                 </div>
-                <div className="flex items-center gap-1 text-cyan-300 font-mono">
+                <div className="isometric-popover__branch">
                   <GitBranch size={11} />
                   {popoverAssignment.node}
-                  <span className="text-slate-500">({popoverAssignment.role})</span>
+                  <span className="isometric-popover__role">({popoverAssignment.role})</span>
                 </div>
-                <p className="font-medium leading-snug line-clamp-2">{popoverAssignment.current_task}</p>
-                <div className="font-mono text-[10px] text-slate-400 leading-snug">
+                <p className="isometric-popover__task">{popoverAssignment.current_task}</p>
+                <div className="isometric-popover__meta">
                   <div>run {popoverAssignment.run_id} · {popoverAssignment.run_status}</div>
-                  <div className="truncate">
+                  <div className="isometric-popover__meta-truncate">
                     {popoverAssignment.task_id
                       ? `bridge ${popoverAssignment.task_id}`
                       : popoverAssignment.gate_id
@@ -1896,7 +1896,7 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
                       : 'awaiting Bridge submission'}
                   </div>
                 </div>
-                <div className="mt-auto flex items-center gap-1.5">
+                <div className="isometric-popover__actions">
                   <button
                     onClick={() => {
                       setPopoverId(null);
@@ -1907,7 +1907,7 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
                       );
                     }}
                     disabled={!onOpenWorkflow}
-                    className="flex-1 flex items-center justify-center gap-1 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold rounded-md px-2 py-1 transition disabled:opacity-50"
+                    className="isometric-popover__open-btn"
                   >
                     <ExternalLink size={11} />
                     Open in Process Studio
@@ -1917,7 +1917,7 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
                       setPopoverId(null);
                       onSelectAgent(popoverAgent.id);
                     }}
-                    className="flex items-center gap-1 border border-slate-700 hover:border-slate-500 rounded-md px-2 py-1 text-slate-300 transition"
+                    className="isometric-popover__details-btn"
                     title="Agent details"
                   >
                     <User size={11} />
