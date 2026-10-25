@@ -9,3 +9,6 @@ htmlcov/
 .DS_Store
 node_modules/
 .bun/
+
+# CodeGraph index
+.codegraph/

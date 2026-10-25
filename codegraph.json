@@ -1,0 +1,18 @@
+{
+  "exclude": [
+    "dist",
+    "node_modules",
+    ".bun",
+    "__pycache__",
+    "*.py[cod]",
+    ".pytest_cache",
+    ".coverage",
+    "htmlcov",
+    "artifacts",
+    ".omo",
+    ".codegraph",
+    "*.egg-info",
+    "*.min.js",
+    "*.map"
+  ]
+}
