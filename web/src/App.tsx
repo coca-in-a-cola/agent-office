@@ -1,8 +1,8 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { QueryClientProvider } from '@tanstack/react-query';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { QueryClientProvider, useMutation } from '@tanstack/react-query';
 import { queryClient, resetOnAuthChange } from './api/queryClient';
 import { OfficeState, StudioFocus } from './types';
-import { bootstrapAuth } from './api/auth';
+import { bootstrapAuth, loginWithPassword } from './api/auth';
 import { useOfficeState } from './hooks/useOfficeState';
 import { IsometricOffice } from './components/IsometricOffice';
 import { EmployeeRoster } from './components/EmployeeRoster';
@@ -104,15 +104,33 @@ const MainOfficeApp: React.FC = () => {
   const [authUser, setAuthUser] = useState<{ id: string; role: string; name?: string } | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [loginSecret, setLoginSecret] = useState('');
-  const [loginPending, setLoginPending] = useState(false);
   const [loginError, setLoginError] = useState('');
 
-  // Clear query cache on auth identity transitions
+  // Ref holding the previous auth identity for side-effect comparison outside
+  // the React state updater. Updated synchronously after every auth state change.
+  const prevAuthRef = useRef<{ id: string; role: string } | null>(null);
+
+  // Set the authenticated user and trigger cache reset on identity transitions.
+  //
+  // Identity is scoped to (id, role): same user with an elevated role must not
+  // retain cache from the lower-privilege session (e.g. viewer → admin).
+  //
+  // The React state updater is kept pure (no side effects). Side effects are
+  // triggered by comparing the incoming identity to the ref snapshot outside
+  // the updater, synchronously before calling setState. This is safe because:
+  //  - The ref is only read/written in the React event-loop (not concurrent),
+  //    so the comparison is always coherent with the preceding render.
+  //  - resetOnAuthChange() increments the auth epoch synchronously, so any
+  //    mutation onSuccess callbacks that fire after this call will see the
+  //    updated epoch and skip their cache writes.
   const handleSetAuthUser = useCallback((user: { id: string; role: string; name?: string } | null) => {
-    setAuthUser((prev) => {
-      if (prev?.id !== user?.id) resetOnAuthChange();
-      return user;
-    });
+    const prev = prevAuthRef.current;
+    const identityChanged = prev?.id !== user?.id || prev?.role !== user?.role;
+    if (identityChanged) {
+      resetOnAuthChange();
+    }
+    prevAuthRef.current = user ? { id: user.id, role: user.role } : null;
+    setAuthUser(user);
   }, []);
 
   const handleAuthExpired = useCallback(() => {
@@ -127,25 +145,22 @@ const MainOfficeApp: React.FC = () => {
   const state = liveState ?? FALLBACK_STATE;
   const lastSyncDate = lastSync ?? new Date();
 
-  const login = async (event: React.FormEvent) => {
-    event.preventDefault();
-    setLoginPending(true);
-    setLoginError('');
-    try {
-      const response = await fetch('/api/auth/login', {
-        method: 'POST', credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: loginSecret, token: loginSecret }),
-      });
-      if (!response.ok) throw new Error(response.status === 401 ? 'Invalid password or access token.' : `Login failed (HTTP ${response.status}).`);
-      const data = await response.json();
+  const loginMutation = useMutation({
+    mutationFn: loginWithPassword,
+    retry: false,
+    onSuccess: (user) => {
       setLoginSecret('');
-      handleSetAuthUser(data.user);
-    } catch (error) {
+      handleSetAuthUser(user);
+    },
+    onError: (error) => {
       setLoginError(error instanceof Error ? error.message : 'Login failed.');
-    } finally {
-      setLoginPending(false);
-    }
+    },
+  });
+
+  const login = (event: React.FormEvent) => {
+    event.preventDefault();
+    setLoginError('');
+    loginMutation.mutate(loginSecret);
   };
 
   const switchView = (next: View) => {
@@ -199,8 +214,8 @@ const MainOfficeApp: React.FC = () => {
         <p>{authReady ? 'Login required. Open from Telegram or sign in with your Office password or access token.' : 'Checking your session…'}</p>
         <label htmlFor="office-login">Password or access token</label>
         <input id="office-login" name="password" type="password" autoComplete="current-password" required value={loginSecret} onChange={(event) => setLoginSecret(event.target.value)} style={{ padding: '0.8rem' }} />
-        <button type="submit" disabled={!authReady || loginPending} style={{ padding: '0.8rem' }}>{loginPending ? 'Signing in…' : 'Sign in'}</button>
-        <button type="button" disabled={!authReady || loginPending} onClick={() => void initAuth()} style={{ padding: '0.8rem' }}>Retry Telegram sign-in</button>
+        <button type="submit" disabled={!authReady || loginMutation.isPending} style={{ padding: '0.8rem' }}>{loginMutation.isPending ? 'Signing in…' : 'Sign in'}</button>
+        <button type="button" disabled={!authReady || loginMutation.isPending} onClick={() => void initAuth()} style={{ padding: '0.8rem' }}>Retry Telegram sign-in</button>
         {loginError && <p role="alert">{loginError}</p>}
       </form>
     </main>

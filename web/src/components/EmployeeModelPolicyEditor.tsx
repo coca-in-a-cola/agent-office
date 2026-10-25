@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Agent, ModelProviderEntry } from '../types';
-import { updateAgentPolicy } from '../api/agentPolicy';
+import { updateAgentPolicy, UpdatePolicyPayload } from '../api/agentPolicy';
+import { OFFICE_STATE_KEY } from '../hooks/useOfficeState';
 import './EmployeeModelPolicyEditor.scss';
 
 interface Props {
@@ -18,19 +20,45 @@ interface LocalPolicy {
 }
 
 export function EmployeeModelPolicyEditor({ agent }: Props) {
+  const queryClient = useQueryClient();
+
   const [localPolicyOverride, setLocalPolicyOverride] = useState<LocalPolicy | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [draftModels, setDraftModels] = useState<DraftRow[]>([]);
   const [draftStrategy, setDraftStrategy] = useState<'priority' | 'round_robin'>('priority');
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  // Track which agent was active when the mutation was triggered so a stale
+  // response for a prior agent does not update the current agent's form.
+  const mutatingForAgentId = useRef<string | null>(null);
 
   // Reset local state whenever agent.id changes
   useEffect(() => {
     setLocalPolicyOverride(null);
     setIsEditing(false);
-    setError(null);
+    setValidationError(null);
   }, [agent.id]);
+
+  const savePolicy = useMutation({
+    mutationFn: (payload: UpdatePolicyPayload) => updateAgentPolicy(agent.id, payload),
+    retry: false,
+    onSuccess: (res) => {
+      // Discard response if the agent has changed since mutation was fired
+      if (mutatingForAgentId.current !== agent.id) return;
+
+      setLocalPolicyOverride({
+        models: res.agent.models,
+        routing_strategy: res.agent.routing_strategy,
+      });
+      setIsEditing(false);
+
+      // Invalidate the office state cache so the roster reflects updated policy
+      void queryClient.invalidateQueries({ queryKey: OFFICE_STATE_KEY });
+    },
+    onError: () => {
+      // error message rendered from savePolicy.error below
+    },
+  });
 
   const effectiveModels: ModelProviderEntry[] | undefined = localPolicyOverride
     ? localPolicyOverride.models
@@ -42,6 +70,16 @@ export function EmployeeModelPolicyEditor({ agent }: Props) {
 
   const hasConfiguredPolicy = Array.isArray(effectiveModels) && effectiveModels.length > 0;
 
+  const pending = savePolicy.isPending;
+
+  const errorMessage: string | null =
+    validationError ??
+    (savePolicy.error instanceof Error
+      ? savePolicy.error.message
+      : savePolicy.error != null
+        ? String(savePolicy.error)
+        : null);
+
   const handleStartEdit = () => {
     if (hasConfiguredPolicy && effectiveModels) {
       setDraftModels(effectiveModels.map((item) => ({ provider: item.provider, model: item.model })));
@@ -49,13 +87,15 @@ export function EmployeeModelPolicyEditor({ agent }: Props) {
       setDraftModels([{ provider: '', model: '' }]);
     }
     setDraftStrategy(effectiveStrategy === 'round_robin' ? 'round_robin' : 'priority');
-    setError(null);
+    setValidationError(null);
+    savePolicy.reset();
     setIsEditing(true);
   };
 
   const handleCancel = () => {
     setIsEditing(false);
-    setError(null);
+    setValidationError(null);
+    savePolicy.reset();
   };
 
   const handleFieldChange = (index: number, field: 'provider' | 'model', value: string) => {
@@ -96,24 +136,25 @@ export function EmployeeModelPolicyEditor({ agent }: Props) {
     });
   };
 
-  const handleSave = async (e: React.FormEvent) => {
+  const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
+    setValidationError(null);
+    savePolicy.reset();
 
     if (draftModels.length === 0) {
-      setError('At least one model entry is required.');
+      setValidationError('At least one model entry is required.');
       return;
     }
 
     for (let i = 0; i < draftModels.length; i++) {
       const row = draftModels[i];
       if (!row.provider.trim() || !row.model.trim()) {
-        setError(`Row #${i + 1} has an empty provider or model.`);
+        setValidationError(`Row #${i + 1} has an empty provider or model.`);
         return;
       }
     }
 
-    const payload = {
+    const payload: UpdatePolicyPayload = {
       models: draftModels.map((row, index) => ({
         provider: row.provider.trim(),
         model: row.model.trim(),
@@ -122,20 +163,8 @@ export function EmployeeModelPolicyEditor({ agent }: Props) {
       routing_strategy: draftStrategy,
     };
 
-    setPending(true);
-    try {
-      const res = await updateAgentPolicy(agent.id, payload);
-      setLocalPolicyOverride({
-        models: res.agent.models,
-        routing_strategy: res.agent.routing_strategy,
-      });
-      setIsEditing(false);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-    } finally {
-      setPending(false);
-    }
+    mutatingForAgentId.current = agent.id;
+    savePolicy.mutate(payload);
   };
 
   return (
@@ -269,9 +298,9 @@ export function EmployeeModelPolicyEditor({ agent }: Props) {
             </button>
           </div>
 
-          {error && (
+          {errorMessage && (
             <div className="policy-error" role="alert">
-              {error}
+              {errorMessage}
             </div>
           )}
 
