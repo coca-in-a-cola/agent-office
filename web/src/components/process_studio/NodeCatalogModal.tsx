@@ -1,6 +1,7 @@
 import React from 'react';
 import { X, Play, Cpu, ShieldCheck, RotateCcw, CheckCircle, AlertOctagon } from 'lucide-react';
 import { EditorNode, EditorPort } from '../../editorTypes';
+import '../../styles/components/node-catalog-modal.scss';
 
 interface NodeCatalogModalProps {
   isOpen: boolean;
@@ -25,7 +26,7 @@ const TEMPLATES: NodeTemplate[] = [
     type: 'Start',
     name: 'Admission Gate',
     goal: 'Validate incoming change request and allocate run workspace',
-    icon: <Play size={16} className="text-cyan-400" />,
+    icon: <Play size={16} className="ps-catalog-modal__icon ps-catalog-modal__icon--cyan" />,
     ports: [
       {
         id: 'p_start_ctrl_out',
@@ -50,7 +51,7 @@ const TEMPLATES: NodeTemplate[] = [
     name: 'Software Implementation',
     role: 'webdev',
     goal: 'Implement requested feature and commit to git with verified test exit',
-    icon: <Cpu size={16} className="text-purple-400" />,
+    icon: <Cpu size={16} className="ps-catalog-modal__icon ps-catalog-modal__icon--purple" />,
     deadlines: {
       execution_timeout_seconds: 1800,
       queue_timeout_seconds: 300,
@@ -155,7 +156,7 @@ const TEMPLATES: NodeTemplate[] = [
     name: 'Inspect Partial Snapshot',
     role: 'qa',
     goal: 'Verify whether timed-out execution yielded a clean quiescent commit or recoverable state',
-    icon: <ShieldCheck size={16} className="text-amber-400" />,
+    icon: <ShieldCheck size={16} className="ps-catalog-modal__icon ps-catalog-modal__icon--amber" />,
     deadlines: {
       execution_timeout_seconds: 600,
       queue_timeout_seconds: 120,
@@ -227,7 +228,7 @@ const TEMPLATES: NodeTemplate[] = [
     name: 'Retry Gate',
     role: 'tyler',
     goal: 'Enforce bounded iteration count on implementation retries',
-    icon: <RotateCcw size={16} className="text-emerald-400" />,
+    icon: <RotateCcw size={16} className="ps-catalog-modal__icon ps-catalog-modal__icon--emerald" />,
     config: {
       max_iterations: 3,
       loop_variable: 'retry_count',
@@ -261,7 +262,7 @@ const TEMPLATES: NodeTemplate[] = [
     name: 'Independent Acceptance',
     role: 'qa',
     goal: 'Verify implementation independently from author identity',
-    icon: <CheckCircle size={16} className="text-blue-400" />,
+    icon: <CheckCircle size={16} className="ps-catalog-modal__icon ps-catalog-modal__icon--blue" />,
     deadlines: {
       execution_timeout_seconds: 900,
       queue_timeout_seconds: 180,
@@ -316,7 +317,7 @@ const TEMPLATES: NodeTemplate[] = [
     type: 'End',
     name: 'Workflow Completed',
     goal: 'Record successful completion and release run resources',
-    icon: <AlertOctagon size={16} className="text-emerald-400" />,
+    icon: <AlertOctagon size={16} className="ps-catalog-modal__icon ps-catalog-modal__icon--emerald" />,
     config: {
       terminal_outcome: 'completed',
     },
@@ -362,36 +363,36 @@ export const NodeCatalogModal: React.FC<NodeCatalogModalProps> = ({ isOpen, onCl
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-      <div className="w-full max-w-lg bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
-        <div className="px-5 py-3.5 border-b border-slate-800 flex items-center justify-between">
-          <h3 className="font-bold text-sm text-slate-100 flex items-center gap-2">
+    <div className="ps-catalog-modal__overlay">
+      <div className="ps-catalog-modal__dialog">
+        <div className="ps-catalog-modal__header">
+          <h3 className="ps-catalog-modal__title">
             <span>Add Node from Catalog</span>
           </h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-white p-1 rounded-lg">
+          <button onClick={onClose} className="ps-catalog-modal__close-btn" aria-label="Close modal">
             <X size={16} />
           </button>
         </div>
 
-        <div className="p-4 space-y-2.5 overflow-y-auto">
+        <div className="ps-catalog-modal__list">
           {TEMPLATES.map((tmpl) => (
             <div
               key={tmpl.type}
               onClick={() => handleSelect(tmpl)}
-              className="p-3 bg-slate-950/70 border border-slate-800 hover:border-cyan-500/70 rounded-lg cursor-pointer transition flex items-start gap-3"
+              className="ps-catalog-modal__item"
             >
-              <div className="p-2 rounded bg-slate-900 border border-slate-800 shrink-0">
+              <div className="ps-catalog-modal__item-icon-box">
                 {tmpl.icon}
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between gap-2">
-                  <h4 className="font-semibold text-xs text-slate-100">{tmpl.name}</h4>
-                  <span className="text-[10px] font-mono uppercase bg-slate-800 px-1.5 py-0.5 rounded text-cyan-300">
+              <div className="ps-catalog-modal__item-content">
+                <div className="ps-catalog-modal__item-header">
+                  <h4 className="ps-catalog-modal__item-name">{tmpl.name}</h4>
+                  <span className="ps-catalog-modal__item-type-badge">
                     {tmpl.type}
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-400 mt-1 line-clamp-2">{tmpl.goal}</p>
-                <div className="flex items-center gap-2 mt-2 text-[10px] font-mono text-slate-500">
+                <p className="ps-catalog-modal__item-goal">{tmpl.goal}</p>
+                <div className="ps-catalog-modal__item-meta">
                   {tmpl.role && <span>Role: {tmpl.role}</span>}
                   {tmpl.deadlines?.execution_timeout_seconds && (
                     <span>Timeout: {tmpl.deadlines.execution_timeout_seconds}s</span>

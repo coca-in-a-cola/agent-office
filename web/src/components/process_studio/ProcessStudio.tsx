@@ -18,6 +18,7 @@ import { RunInspector } from './RunInspector';
 import { WorkflowSelector } from './WorkflowSelector';
 import { EditorView } from './EditorView';
 import { getAuthEpoch } from '../../api/queryClient';
+import '../../styles/components/process-studio.scss';
 import {
   commandMutationOptions,
   createRunMutationOptions,
@@ -212,23 +213,23 @@ export const ProcessStudio: React.FC<ProcessStudioProps> = ({ focus = null, onDi
 
   if (studioMode === 'edit') {
     return (
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="h-10 border-b border-slate-800 bg-[#0f172a] px-4 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2">
-            <GitBranch size={15} className="text-cyan-400" />
-            <span className="font-bold text-xs text-slate-100">Process Studio</span>
+      <div className="ps-studio ps-studio--edit">
+        <div className="ps-studio__header">
+          <div className="ps-studio__header-left">
+            <GitBranch size={15} className="ps-studio__header-icon" />
+            <span className="ps-studio__header-title">Process Studio</span>
           </div>
-          <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-xs">
+          <div className="ps-studio__mode-switch">
             <button
               onClick={() => setStudioMode('edit')}
-              className="flex items-center gap-1.5 px-3 py-1 rounded-md font-medium transition bg-cyan-500 text-slate-950 font-semibold shadow-sm"
+              className="ps-studio__mode-btn ps-studio__mode-btn--active"
             >
               <Edit3 size={13} />
               <span>Edit Graph</span>
             </button>
             <button
               onClick={() => setStudioMode('observe')}
-              className="flex items-center gap-1.5 px-3 py-1 rounded-md font-medium transition text-slate-400 hover:text-slate-200"
+              className="ps-studio__mode-btn"
             >
               <Eye size={13} />
               <span>Observe Run</span>
@@ -248,9 +249,9 @@ export const ProcessStudio: React.FC<ProcessStudioProps> = ({ focus = null, onDi
   // -------------------------------------------------------------------------
 
   return (
-    <div className="flex-1 flex overflow-hidden">
+    <div className="ps-studio ps-studio--observe">
       {/* Run list */}
-      <aside className="w-72 shrink-0 border-r border-slate-800 bg-[#0b1120] p-3 overflow-hidden flex flex-col">
+      <aside className="ps-studio__sidebar">
         <WorkflowSelector
           runs={runs}
           definitions={definitionsList}
@@ -262,29 +263,29 @@ export const ProcessStudio: React.FC<ProcessStudioProps> = ({ focus = null, onDi
       </aside>
 
       {/* Graph + controls */}
-      <main className="flex-1 flex flex-col overflow-hidden">
-        <div className="px-5 py-3 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-4">
+      <main className="ps-studio__main">
+        <div className="ps-studio__toolbar">
+          <div className="ps-studio__toolbar-left">
             <div>
-              <h2 className="text-sm font-bold text-slate-100 flex items-center gap-2">
-                <GitBranch size={16} className="text-cyan-400" />
+              <h2 className="ps-studio__toolbar-title">
+                <GitBranch size={16} className="ps-studio__toolbar-icon" />
                 {definition ? `${definition.name} v${definition.version}` : 'Process Studio'}
               </h2>
-              <p className="text-[10px] font-mono text-slate-500" title={definition?.definition_hash}>
+              <p className="ps-studio__toolbar-hash" title={definition?.definition_hash}>
                 {definition?.definition_hash ?? 'loading definition…'}
               </p>
             </div>
-            <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-xs">
+            <div className="ps-studio__mode-switch">
               <button
                 onClick={() => setStudioMode('edit')}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md font-medium transition text-slate-400 hover:text-slate-200"
+                className="ps-studio__mode-btn"
               >
                 <Edit3 size={12} />
                 <span>Edit Graph</span>
               </button>
               <button
                 onClick={() => setStudioMode('observe')}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md font-medium transition bg-cyan-500 text-slate-950 font-semibold shadow-sm"
+                className="ps-studio__mode-btn ps-studio__mode-btn--active"
               >
                 <Eye size={12} />
                 <span>Observe Run</span>
@@ -302,34 +303,34 @@ export const ProcessStudio: React.FC<ProcessStudioProps> = ({ focus = null, onDi
         </div>
 
         {(error || offline) && (
-          <div className="mx-5 mt-3 flex items-center justify-between gap-2 rounded-lg border border-red-500/50 bg-red-950/50 px-3 py-2 text-xs text-red-200">
-            <span className="flex items-center gap-2">
+          <div className="ps-studio__banner ps-studio__banner--error">
+            <span className="ps-studio__banner-text">
               <AlertTriangle size={14} />
               {error ?? 'Lost connection to /api/workflow — retrying…'}
             </span>
             {error && (
-              <button onClick={() => setMutationError(null)} className="text-red-300 hover:text-white">
+              <button onClick={() => setMutationError(null)} className="ps-studio__banner-dismiss">
                 <X size={14} />
               </button>
             )}
           </div>
         )}
 
-        <div className="flex-1 overflow-auto p-5 space-y-4">
+        <div className="ps-studio__content">
           {linked && (
-            <div className="flex items-center justify-between gap-2 rounded-lg border border-cyan-500/50 bg-cyan-950/40 px-3 py-2 text-xs text-cyan-200">
-              <span className="flex items-center gap-2">
+            <div className="ps-studio__banner ps-studio__banner--linked">
+              <span className="ps-studio__banner-text">
                 <Building size={14} />
                 Opened from Tycoon View{linked.source ? ` (${linked.source})` : ''}: run{' '}
-                <span className="font-mono">{linked.runId}</span>
+                <span className="ps-studio__mono-val">{linked.runId}</span>
                 {linked.node && (
                   <>
-                    {' '}· node <span className="font-mono">{linked.node}</span>
+                    {' '}· node <span className="ps-studio__mono-val">{linked.node}</span>
                   </>
                 )}
               </span>
               {onDismissFocus && (
-                <button onClick={onDismissFocus} className="text-cyan-300 hover:text-white" aria-label="Dismiss">
+                <button onClick={onDismissFocus} className="ps-studio__banner-dismiss ps-studio__banner-dismiss--cyan" aria-label="Dismiss">
                   <X size={14} />
                 </button>
               )}
@@ -337,7 +338,7 @@ export const ProcessStudio: React.FC<ProcessStudioProps> = ({ focus = null, onDi
           )}
 
           {definition ? (
-            <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-3">
+            <div className="ps-studio__graph-wrapper">
               <GraphView
                 definition={definition}
                 nodeStates={detail?.node_states}
@@ -347,22 +348,22 @@ export const ProcessStudio: React.FC<ProcessStudioProps> = ({ focus = null, onDi
               />
             </div>
           ) : (
-            <div className="text-slate-500 text-sm">Loading workflow definition…</div>
+            <div className="ps-studio__loading">Loading workflow definition…</div>
           )}
 
-          <div className="flex flex-wrap gap-2 items-center">
-            <span className="text-[10px] uppercase tracking-wider text-slate-500 mr-1">Legend</span>
+          <div className="ps-studio__legend">
+            <span className="ps-studio__legend-label">Legend</span>
             {LEGEND.map((s) => (
               <NodeStatusBadge key={s} state={s} />
             ))}
-            <span className="text-[10px] text-slate-500 ml-2">
+            <span className="ps-studio__legend-note">
               dashed amber arcs = defect feedback loops; engine targets in node tooltips
             </span>
           </div>
 
           {detail?.run.status === 'blocked' && (
             <div
-              className="rounded-lg border px-3 py-2 text-xs"
+              className="ps-studio__blocked-alert"
               style={{ borderColor: NODE_STATE_STYLE.failure.stroke, color: '#fecaca' }}
             >
               Run blocked: {detail.run.status_reason}
@@ -370,7 +371,7 @@ export const ProcessStudio: React.FC<ProcessStudioProps> = ({ focus = null, onDi
           )}
 
           {!detail && runs.length === 0 && (
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 text-center text-slate-400 text-sm">
+            <div className="ps-studio__empty">
               No workflow runs yet. Start a release run from the left panel.
             </div>
           )}
@@ -378,11 +379,11 @@ export const ProcessStudio: React.FC<ProcessStudioProps> = ({ focus = null, onDi
       </main>
 
       {/* Inspector */}
-      <aside className="w-[420px] shrink-0 border-l border-slate-800 bg-[#0b1120] overflow-y-auto p-3">
+      <aside className="ps-studio__inspector">
         {detail ? (
           <RunInspector detail={detail} selectedNode={selectedNode} node={focusDef} />
         ) : (
-          <p className="text-xs text-slate-500 italic p-2">Select a run to inspect it.</p>
+          <p className="ps-studio__inspector-empty">Select a run to inspect it.</p>
         )}
       </aside>
     </div>

@@ -3,6 +3,7 @@ import { NodeProps } from '@xyflow/react';
 import { Clock, AlertTriangle, ShieldCheck, Cpu, Play, CheckCircle, RotateCcw, AlertOctagon } from 'lucide-react';
 import { EditorNode } from '../../editorTypes';
 import { PortBadge } from './PortBadge';
+import '../../styles/components/editor-node.scss';
 
 export interface EditorNodeData {
   node: EditorNode;
@@ -14,19 +15,19 @@ export interface EditorNodeData {
 function getNodeIcon(type: string) {
   switch (type) {
     case 'Start':
-      return <Play size={13} className="text-cyan-400" />;
+      return <Play size={13} className="ps-editor-node__icon ps-editor-node__icon--cyan" />;
     case 'Work':
-      return <Cpu size={13} className="text-purple-400" />;
+      return <Cpu size={13} className="ps-editor-node__icon ps-editor-node__icon--purple" />;
     case 'InspectResult':
-      return <ShieldCheck size={13} className="text-amber-400" />;
+      return <ShieldCheck size={13} className="ps-editor-node__icon ps-editor-node__icon--amber" />;
     case 'LoopGate':
-      return <RotateCcw size={13} className="text-emerald-400" />;
+      return <RotateCcw size={13} className="ps-editor-node__icon ps-editor-node__icon--emerald" />;
     case 'IndependentAcceptance':
-      return <CheckCircle size={13} className="text-blue-400" />;
+      return <CheckCircle size={13} className="ps-editor-node__icon ps-editor-node__icon--blue" />;
     case 'End':
-      return <AlertOctagon size={13} className="text-rose-400" />;
+      return <AlertOctagon size={13} className="ps-editor-node__icon ps-editor-node__icon--rose" />;
     default:
-      return <Cpu size={13} className="text-slate-400" />;
+      return <Cpu size={13} className="ps-editor-node__icon ps-editor-node__icon--muted" />;
   }
 }
 
@@ -44,41 +45,40 @@ export const EditorNodeComponent: React.FC<NodeProps> = ({ id, data, selected })
   const queueTimeout = node.deadlines?.queue_timeout_seconds;
 
   const isCompact = node.type === 'Start' || node.type === 'End' || node.type === 'LoopGate';
-  const widthClass = isCompact ? 'min-w-[190px] max-w-[210px]' : 'min-w-[220px] max-w-[245px]';
+  const widthModifier = isCompact ? 'ps-editor-node--compact' : 'ps-editor-node--standard';
+  const stateModifier = hasErrors
+    ? 'ps-editor-node--error'
+    : selected
+    ? 'ps-editor-node--selected'
+    : '';
 
   return (
     <div
       onClick={() => nodeData.onSelectNode?.(id)}
-      className={`relative ${widthClass} rounded-xl border p-2.5 bg-slate-900/95 backdrop-blur-md shadow-2xl transition-all duration-150 cursor-pointer ${
-        hasErrors
-          ? 'border-rose-500 ring-2 ring-rose-500/40 shadow-rose-950/40'
-          : selected
-          ? 'border-cyan-400 ring-2 ring-cyan-400/50 shadow-cyan-950/50'
-          : 'border-slate-700/80 hover:border-slate-500'
-      }`}
+      className={`ps-editor-node ${widthModifier} ${stateModifier}`}
     >
       {/* Node Header */}
-      <div className="flex items-start justify-between gap-2 border-b border-slate-800 pb-2 mb-2">
-        <div className="flex items-center gap-1.5 min-w-0">
-          <div className="p-1 rounded bg-slate-950 border border-slate-800 shrink-0">
+      <div className="ps-editor-node__header">
+        <div className="ps-editor-node__header-left">
+          <div className="ps-editor-node__icon-box">
             {getNodeIcon(node.type)}
           </div>
-          <div className="min-w-0">
-            <h4 className="font-bold text-xs text-slate-100 truncate" title={node.name}>
+          <div className="ps-editor-node__title-wrap">
+            <h4 className="ps-editor-node__title" title={node.name}>
               {node.name}
             </h4>
-            <div className="flex items-center gap-1.5 text-[9px] font-mono text-slate-400">
-              <span className="uppercase text-cyan-400 font-semibold">{node.type}</span>
-              {node.role && <span className="bg-slate-800 px-1 rounded text-slate-300">@{node.role}</span>}
+            <div className="ps-editor-node__meta">
+              <span className="ps-editor-node__type-tag">{node.type}</span>
+              {node.role && <span className="ps-editor-node__role-tag">@{node.role}</span>}
             </div>
           </div>
         </div>
 
         {/* Timeout / Badges */}
-        <div className="flex flex-col items-end gap-0.5 shrink-0">
+        <div className="ps-editor-node__badges">
           {execTimeout !== undefined && (
             <span
-              className="flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.5 rounded bg-orange-950/80 border border-orange-800/60 text-orange-300"
+              className="ps-editor-node__badge ps-editor-node__badge--timeout"
               title={`Execution timeout: ${execTimeout}s${queueTimeout ? ` (Queue: ${queueTimeout}s)` : ''}`}
             >
               <Clock size={10} />
@@ -87,7 +87,7 @@ export const EditorNodeComponent: React.FC<NodeProps> = ({ id, data, selected })
           )}
           {hasErrors && (
             <span
-              className="flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.5 rounded bg-rose-950/80 border border-rose-800/60 text-rose-300"
+              className="ps-editor-node__badge ps-editor-node__badge--error"
               title={errors.join('\n')}
             >
               <AlertTriangle size={10} />
@@ -99,17 +99,17 @@ export const EditorNodeComponent: React.FC<NodeProps> = ({ id, data, selected })
 
       {/* Goal Preview */}
       {node.goal && (
-        <p className="text-[10px] text-slate-400 mb-2.5 line-clamp-2 italic leading-tight" title={node.goal}>
+        <p className="ps-editor-node__goal" title={node.goal}>
           {node.goal}
         </p>
       )}
 
       {/* Ports Columns */}
-      <div className="grid grid-cols-2 gap-2 pt-1">
+      <div className="ps-editor-node__ports">
         {/* Inputs (Left) */}
-        <div className="space-y-1">
+        <div className="ps-editor-node__ports-col ps-editor-node__ports-col--inputs">
           {inputPorts.length > 0 && (
-            <span className="text-[9px] font-mono uppercase text-slate-500 tracking-wider block px-1">
+            <span className="ps-editor-node__ports-label">
               Inputs
             </span>
           )}
@@ -119,9 +119,9 @@ export const EditorNodeComponent: React.FC<NodeProps> = ({ id, data, selected })
         </div>
 
         {/* Outputs (Right) */}
-        <div className="space-y-1 text-right">
+        <div className="ps-editor-node__ports-col ps-editor-node__ports-col--outputs">
           {outputPorts.length > 0 && (
-            <span className="text-[9px] font-mono uppercase text-slate-500 tracking-wider block px-1">
+            <span className="ps-editor-node__ports-label">
               Outputs
             </span>
           )}

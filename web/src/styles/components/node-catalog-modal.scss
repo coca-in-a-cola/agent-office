@@ -1,0 +1,164 @@
+// NodeCatalogModal component styles for Process Studio
+// Semantic classes for catalog dialog overlay, card, template items, icons, and metadata tags.
+
+.ps-catalog-modal {
+  &__overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(4px);
+    padding: 1rem;
+  }
+
+  &__dialog {
+    width: 100%;
+    max-width: 32rem;
+    background-color: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 0.75rem;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    max-height: 85vh;
+  }
+
+  &__header {
+    padding: 0.875rem 1.25rem;
+    border-bottom: 1px solid #1e293b;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  &__title {
+    font-weight: 700;
+    font-size: 0.875rem;
+    color: #f1f5f9;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0;
+  }
+
+  &__close-btn {
+    background: none;
+    border: none;
+    color: #94a3b8;
+    padding: 0.25rem;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.15s ease;
+
+    &:hover {
+      color: #ffffff;
+    }
+  }
+
+  &__list {
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+    overflow-y: auto;
+  }
+
+  &__item {
+    padding: 0.75rem;
+    background-color: rgba(2, 6, 23, 0.7);
+    border: 1px solid #1e293b;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+
+    &:hover {
+      border-color: rgba(6, 182, 212, 0.7);
+      background-color: rgba(2, 6, 23, 0.9);
+    }
+  }
+
+  &__item-icon-box {
+    padding: 0.5rem;
+    border-radius: 0.25rem;
+    background-color: #0f172a;
+    border: 1px solid #1e293b;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    // Explicit color fallbacks for template icons
+    .text-cyan-400 { color: #22d3ee; }
+    .text-purple-400 { color: #c084fc; }
+    .text-amber-400 { color: #fbbf24; }
+    .text-emerald-400 { color: #34d399; }
+    .text-blue-400 { color: #60a5fa; }
+  }
+
+  &__icon {
+    &--cyan { color: #22d3ee; }
+    &--purple { color: #c084fc; }
+    &--amber { color: #fbbf24; }
+    &--emerald { color: #34d399; }
+    &--blue { color: #60a5fa; }
+  }
+
+  &__item-content {
+    flex: 1 1 0%;
+    min-width: 0;
+  }
+
+  &__item-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+
+  &__item-name {
+    font-weight: 600;
+    font-size: 0.75rem;
+    color: #f1f5f9;
+    margin: 0;
+  }
+
+  &__item-type-badge {
+    font-size: 10px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    text-transform: uppercase;
+    background-color: #1e293b;
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+    color: #67e8f9;
+  }
+
+  &__item-goal {
+    font-size: 11px;
+    color: #94a3b8;
+    margin: 0.25rem 0 0 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  &__item-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+    font-size: 10px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    color: #64748b;
+  }
+}
