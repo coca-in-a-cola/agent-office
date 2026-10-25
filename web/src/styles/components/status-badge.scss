@@ -1,0 +1,267 @@
+// StatusBadge component styles
+// Semantic classes for agent status indicators — replaces Tailwind utility strings.
+// Animations are self-contained here; no compat-CSS dependency.
+
+// --- CSS custom properties for each status color ---
+:root {
+  // Working (emerald)
+  --status-working-bg:     rgba(6, 24, 14, 0.80);
+  --status-working-border: rgba(16, 185, 129, 0.50);
+  --status-working-text:   #6ee7b7;
+  --status-working-dot:    #34d399;
+  --status-working-glow:   rgba(16, 185, 129, 0.25);
+
+  // Researching (blue)
+  --status-researching-bg:     rgba(8, 15, 40, 0.80);
+  --status-researching-border: rgba(59, 130, 246, 0.50);
+  --status-researching-text:   #93c5fd;
+  --status-researching-dot:    #60a5fa;
+  --status-researching-glow:   rgba(59, 130, 246, 0.25);
+
+  // Review (amber)
+  --status-review-bg:     rgba(30, 17, 3, 0.80);
+  --status-review-border: rgba(245, 158, 11, 0.50);
+  --status-review-text:   #fcd34d;
+  --status-review-dot:    #fbbf24;
+  --status-review-glow:   rgba(245, 158, 11, 0.25);
+
+  // Blocked (rose)
+  --status-blocked-bg:     rgba(30, 5, 10, 0.80);
+  --status-blocked-border: rgba(244, 63, 94, 0.50);
+  --status-blocked-text:   #fda4af;
+  --status-blocked-dot:    #fb7185;
+  --status-blocked-glow:   rgba(244, 63, 94, 0.30);
+
+  // Awaiting human (purple)
+  --status-awaiting-bg:     rgba(20, 8, 32, 0.80);
+  --status-awaiting-border: rgba(168, 85, 247, 0.50);
+  --status-awaiting-text:   #d8b4fe;
+  --status-awaiting-dot:    #c084fc;
+  --status-awaiting-glow:   rgba(168, 85, 247, 0.30);
+
+  // Defect (orange)
+  --status-defect-bg:     rgba(28, 12, 2, 0.80);
+  --status-defect-border: rgba(249, 115, 22, 0.50);
+  --status-defect-text:   #fdba74;
+  --status-defect-dot:    #fb923c;
+  --status-defect-glow:   rgba(249, 115, 22, 0.30);
+
+  // Idle (slate)
+  --status-idle-bg:     rgba(15, 23, 42, 0.80);
+  --status-idle-border: rgba(100, 116, 139, 0.60);
+  --status-idle-text:   #94a3b8;
+  --status-idle-dot:    #64748b;
+  --status-idle-glow:   transparent;
+}
+
+// --- Animation keyframes (component-owned; no compat-CSS dependency) ---
+
+@keyframes sb-ping {
+  75%, 100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+@keyframes sb-pulse {
+  50% { opacity: 0.5; }
+}
+
+@keyframes sb-typing-dot {
+  0%, 100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  50% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+@keyframes sb-beacon-glow {
+  0%, 100% { filter: drop-shadow(0 0 2px rgba(192, 132, 252, 0.4)); }
+  50%       { filter: drop-shadow(0 0 8px rgba(192, 132, 252, 0.9)); }
+}
+
+// --- Base badge ---
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  font-weight: 500;
+  border-radius: 9999px;
+  border: 1px solid;
+  backdrop-filter: blur(4px);
+  transition: all 0.2s;
+
+  // --- Size modifiers ---
+  &--sm {
+    font-size: 10px;
+    padding: 2px 6px;
+    gap: 4px;
+  }
+
+  &--md {
+    font-size: 12px;
+    padding: 4px 10px;
+    gap: 6px;
+  }
+
+  &--lg {
+    font-size: 14px;
+    padding: 6px 14px;
+    gap: 8px;
+  }
+
+  // --- Icon (lucide) ---
+  &__icon {
+    flex-shrink: 0;
+  }
+
+  // --- Status color variants ---
+  &--working {
+    background-color: var(--status-working-bg);
+    border-color:     var(--status-working-border);
+    color:            var(--status-working-text);
+    box-shadow: 0 0 12px var(--status-working-glow);
+  }
+
+  &--researching {
+    background-color: var(--status-researching-bg);
+    border-color:     var(--status-researching-border);
+    color:            var(--status-researching-text);
+    box-shadow: 0 0 12px var(--status-researching-glow);
+  }
+
+  &--review {
+    background-color: var(--status-review-bg);
+    border-color:     var(--status-review-border);
+    color:            var(--status-review-text);
+    box-shadow: 0 0 12px var(--status-review-glow);
+  }
+
+  &--blocked {
+    background-color: var(--status-blocked-bg);
+    border-color:     var(--status-blocked-border);
+    color:            var(--status-blocked-text);
+    box-shadow: 0 0 12px var(--status-blocked-glow);
+  }
+
+  &--awaiting-human {
+    background-color: var(--status-awaiting-bg);
+    border-color:     var(--status-awaiting-border);
+    color:            var(--status-awaiting-text);
+    box-shadow: 0 0 12px var(--status-awaiting-glow);
+  }
+
+  &--defect {
+    background-color: var(--status-defect-bg);
+    border-color:     var(--status-defect-border);
+    color:            var(--status-defect-text);
+    box-shadow: 0 0 12px var(--status-defect-glow);
+  }
+
+  &--idle {
+    background-color: var(--status-idle-bg);
+    border-color:     var(--status-idle-border);
+    color:            var(--status-idle-text);
+  }
+
+  // --- Indicator slot ---
+  &__indicator {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 4px;
+  }
+}
+
+// --- Per-status indicator dots / animations ---
+
+// Working: 3 typing dots
+.sb-dot-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 4px;
+}
+
+.sb-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+
+  &--working { background-color: var(--status-working-dot); }
+
+  &--1 { animation: sb-typing-dot 1s ease-in-out 0.0s infinite; }
+  &--2 { animation: sb-typing-dot 1s ease-in-out 0.2s infinite; }
+  &--3 { animation: sb-typing-dot 1s ease-in-out 0.4s infinite; }
+}
+
+// Researching: ping halo
+.sb-ping-wrapper {
+  position: relative;
+  display: inline-flex;
+  width: 8px;
+  height: 8px;
+  margin-left: 4px;
+}
+
+.sb-ping-outer {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background-color: var(--status-researching-dot);
+  opacity: 0.75;
+  animation: sb-ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+.sb-ping-inner {
+  position: relative;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--status-researching-dot);
+}
+
+// Review / Defect: simple pulse dot
+.sb-pulse-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-left: 4px;
+  animation: sb-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+
+  &--review  { background-color: var(--status-review-dot); }
+  &--defect  { background-color: var(--status-defect-dot); }
+}
+
+// Blocked: fast ping dot
+.sb-ping-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-left: 4px;
+  animation: sb-ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;
+
+  &--blocked { background-color: var(--status-blocked-dot); }
+}
+
+// Awaiting human: beacon glow
+.sb-beacon-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-left: 4px;
+  background-color: var(--status-awaiting-dot);
+  animation: sb-beacon-glow 1.5s ease-in-out infinite;
+}
+
+// Idle: static dim dot
+.sb-idle-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-left: 4px;
+  background-color: var(--status-idle-dot);
+  opacity: 0.6;
+}
