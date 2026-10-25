@@ -24,7 +24,8 @@ import {
   type FurnitureRotation,
 } from '../../grid/footprintEngine';
 import { snapToGrid, isoToScreen, calculateDepthZ } from '../../engine/isometric/isoMath';
-import { fetchCampusGrid, saveCampusGrid } from '../../api/gridPersistence';
+import type { CampusGridV2 } from '../../api/gridPersistence';
+import { useGridV2Query, useGridV2Mutation } from '../../hooks/useFurnitureGrid';
 import { AgentInspector } from '../AgentInspector';
 import type { Agent } from '../../types';
 import './PixiOfficeCanvas.scss';
@@ -82,6 +83,28 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({
   const placedFurnitureRef = useRef<PlacedFurnitureItem[]>([]);
   placedFurnitureRef.current = placedFurniture;
 
+  // ---------------------------------------------------------------------------
+  // Grid V2 TanStack Query — lifecycle independent of Pixi init/teardown
+  // ---------------------------------------------------------------------------
+
+  const { data: serverGrid, isLoading: isGridLoading, isError: isGridError } = useGridV2Query();
+  const { mutateRef: saveMutateRef, isPending: isSavePending, isError: isSaveError, error: saveError, reset: resetSaveError } = useGridV2Mutation();
+
+  // Guard: true once we have applied server data OR made any local edit.
+  // Prevents a background re-render from clobbering newer local placements.
+  const serverDataAppliedRef = useRef(false);
+
+  // Apply the server grid exactly once — before any local edit has been made.
+  useEffect(() => {
+    if (serverDataAppliedRef.current) return;
+    if (serverGrid && Array.isArray(serverGrid.furniture)) {
+      serverDataAppliedRef.current = true;
+      setPlacedFurniture(serverGrid.furniture);
+      // Trigger a scene rebuild if Pixi is already up.
+      if (rebuildSceneRef.current) rebuildSceneRef.current();
+    }
+  }, [serverGrid]);
+
   const effectiveAgents = agents || FALLBACK_AGENTS;
   const selectedAgent = effectiveAgents.find((a) => a.id === selectedAgentId);
 
@@ -126,13 +149,6 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({
     let isInitialized = false;
     let lifecycleController: PixiContextLifecycleController | null = null;
     let touchController: TouchController | null = null;
-
-    fetchCampusGrid().then((grid) => {
-      if (!isCancelled && grid && Array.isArray(grid.furniture)) {
-        setPlacedFurniture(grid.furniture);
-        if (rebuildSceneRef.current) rebuildSceneRef.current();
-      }
-    });
 
     setIsInitializing(true);
     setInitError(null);
@@ -195,8 +211,10 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({
                 const existing = findPlacedFurnitureAt(snapped.gx, snapped.gy, placedFurnitureRef.current);
                 if (existing) {
                   const updated = placedFurnitureRef.current.filter((p) => p.id !== existing.id);
+                  serverDataAppliedRef.current = true;
                   setPlacedFurniture(updated);
-                  saveCampusGrid({ schemaVersion: 2, width: 8, height: 8, furniture: updated });
+                  const gridSnapshot: CampusGridV2 = { schemaVersion: 2, width: 8, height: 8, furniture: updated };
+                  saveMutateRef.current(gridSnapshot);
                   if (rebuildSceneRef.current) rebuildSceneRef.current();
                 }
               } else if (selectedDefIdRef.current) {
@@ -219,8 +237,10 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({
                       rotation: furnitureRotationRef.current,
                     };
                     const updated = [...placedFurnitureRef.current, newItem];
+                    serverDataAppliedRef.current = true;
                     setPlacedFurniture(updated);
-                    saveCampusGrid({ schemaVersion: 2, width: 8, height: 8, furniture: updated });
+                    const gridSnapshot: CampusGridV2 = { schemaVersion: 2, width: 8, height: 8, furniture: updated };
+                    saveMutateRef.current(gridSnapshot);
                     if (rebuildSceneRef.current) rebuildSceneRef.current();
                   }
                 }
@@ -671,6 +691,39 @@ export const PixiOfficeCanvas: React.FC<PixiOfficeCanvasProps> = ({
                   </button>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Grid load error — shown inside the viewport, non-blocking */}
+          {isGridError && !isGridLoading && (
+            <div className="pixi-status-banner pixi-status-banner--warn" role="status">
+              <span>⚠ Could not load saved furniture layout. Local state only.</span>
+            </div>
+          )}
+
+          {/* Save error — shown inside the viewport with dismiss */}
+          {isSaveError && (
+            <div className="pixi-status-banner pixi-status-banner--error" role="alert">
+              <span>
+                ✕ Furniture save failed:{' '}
+                {saveError instanceof Error ? saveError.message : 'Unknown error'}
+              </span>
+              <button
+                type="button"
+                className="pixi-status-banner__dismiss"
+                onClick={resetSaveError}
+                aria-label="Dismiss save error"
+              >
+                ×
+              </button>
+            </div>
+          )}
+
+          {/* Save pending indicator */}
+          {isSavePending && (
+            <div className="pixi-status-banner pixi-status-banner--info" role="status" aria-live="polite">
+              <div className="spinner spinner--small" />
+              <span>Saving layout…</span>
             </div>
           )}
         </div>
