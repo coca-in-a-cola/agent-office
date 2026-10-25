@@ -6,6 +6,7 @@ import { WorkflowAssignmentBadge } from './WorkflowAssignmentBadge';
 import { WorkstationMonitor } from './WorkstationMonitor';
 import { EmployeeModelPolicyEditor } from './EmployeeModelPolicyEditor';
 import { SkinCustomizerModal, getAgentSkin } from './character';
+import '../styles/components/agent-inspector.scss';
 
 interface Props {
   agent: Agent;
@@ -83,7 +84,7 @@ export function AgentInspector({ agent, onClose, onOpenWorkflow }: Props) {
             <button
               type="button"
               onClick={() => setShowSkinCustomizer(true)}
-              className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-mono font-medium transition cursor-pointer"
+              className="inspector-skin-button"
             >
               <Palette size={14} />
               <span>Customize Character Skin & Limbs</span>

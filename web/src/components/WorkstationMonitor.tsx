@@ -1,10 +1,10 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Agent, AgentMonitor } from '../types';
 import { transport } from '../api/transport';
 import { BridgeStateBadge, TERMINAL_CLASS, TaskDrilldownModal, formatDuration } from './TaskDrilldownModal';
 import { Monitor, Radio } from 'lucide-react';
-import { useState } from 'react';
+import '../styles/components/workstation-monitor.scss';
 
 interface WorkstationMonitorProps {
   agent: Agent;
@@ -59,47 +59,47 @@ export const WorkstationMonitor: React.FC<WorkstationMonitorProps> = ({ agent })
     : [];
 
   return (
-    <div>
-      <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-        <Monitor size={13} className="text-amber-400" />
+    <div className="workstation-monitor">
+      <span className="workstation-monitor__title">
+        <Monitor size={13} className="workstation-monitor__title-icon" />
         Workstation Monitor
         {monitor?.is_live && (
-          <span className="ml-auto flex items-center gap-1 text-emerald-400 normal-case font-medium">
-            <Radio size={11} className="animate-pulse" /> live
+          <span className="workstation-monitor__live-badge">
+            <Radio size={11} className="workstation-monitor__live-icon" /> live
           </span>
         )}
       </span>
-      <span className="block text-[10px] text-slate-500 mb-2">Terminal Live Stream</span>
+      <span className="workstation-monitor__subtitle">Terminal Live Stream</span>
 
-      {error && !monitor && <p className="text-red-400">Monitor unavailable: {error}</p>}
+      {error && !monitor && <p className="workstation-monitor__error">Monitor unavailable: {error}</p>}
 
       {monitor && monitor.source === 'idle' ? (
-        <div className="bg-slate-950/60 border border-dashed border-slate-800 rounded-lg p-4 text-center text-slate-500 italic">
+        <div className="workstation-monitor__idle">
           Agent workstation is idle (waiting for dispatch)
         </div>
       ) : monitor ? (
-        <div className="space-y-2">
+        <div className="workstation-monitor__content">
           {task && (
             <button
               type="button"
               onClick={() => setDrilldownId(task.task_id)}
               title="Open Task Bridge drill-down"
-              className="w-full text-left bg-slate-950/80 border border-slate-800 hover:border-cyan-500/70 rounded-lg p-2.5 transition space-y-1"
+              className="workstation-monitor__task-card"
             >
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-mono text-cyan-300 text-[11px] truncate underline decoration-dotted">
+              <div className="workstation-monitor__task-header">
+                <span className="workstation-monitor__task-id">
                   {task.task_id}
                 </span>
                 <BridgeStateBadge state={task.state} />
               </div>
-              <p className="text-slate-200 font-medium truncate">{task.title}</p>
-              <div className="text-[10px] font-mono text-slate-500">
+              <p className="workstation-monitor__task-title">{task.title}</p>
+              <div className="workstation-monitor__task-meta">
                 {monitor.is_active ? 'active' : 'most recent'} · {task.executor || 'executor ?'} ·{' '}
                 {task.model || 'model ?'} · {formatDuration(task.duration_seconds)}
               </div>
             </button>
           )}
-          <pre ref={terminalRef} onScroll={onScroll} className={`${TERMINAL_CLASS} max-h-56 m-0`}>
+          <pre ref={terminalRef} onScroll={onScroll} className={`${TERMINAL_CLASS} workstation-monitor__terminal`}>
             {lines.length > 0
               ? lines.join('\n')
               : task?.is_live
@@ -108,7 +108,7 @@ export const WorkstationMonitor: React.FC<WorkstationMonitorProps> = ({ agent })
           </pre>
         </div>
       ) : (
-        !error && <p className="text-slate-500 italic">Connecting to workstation…</p>
+        !error && <p className="workstation-monitor__connecting">Connecting to workstation…</p>
       )}
 
       {drilldownId && (
