@@ -206,7 +206,9 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
     const handleSkinsUpdate = () => {
       try {
         setCustomSkins(JSON.parse(localStorage.getItem('agent_office_custom_skins') || '{}'));
-      } catch {}
+      } catch {
+        // Ignore malformed localStorage JSON — stale skins simply keep their previous value
+      }
     };
     window.addEventListener('skins-updated', handleSkinsUpdate);
     return () => window.removeEventListener('skins-updated', handleSkinsUpdate);

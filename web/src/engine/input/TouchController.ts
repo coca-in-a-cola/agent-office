@@ -111,7 +111,9 @@ export class TouchController {
       this.telegramCleanup = () => {
         try {
           tg.offEvent?.('viewportChanged', onViewport);
-        } catch {}
+        } catch {
+          // Telegram SDK offEvent may throw if the WebApp context was already torn down
+        }
       };
     }
   }

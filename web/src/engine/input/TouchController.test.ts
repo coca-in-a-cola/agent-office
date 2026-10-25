@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { TouchController, type TapEvent, type TransformState } from './TouchController';
 
 class MockEventTarget {
-  public listeners: Record<string, Function[]> = {};
+  public listeners: Record<string, ((...args: unknown[]) => unknown)[]> = {};
 
   addEventListener(type: string, listener: any, _options?: any): void {
     if (!this.listeners[type]) this.listeners[type] = [];

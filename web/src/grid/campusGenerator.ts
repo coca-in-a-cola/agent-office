@@ -284,7 +284,7 @@ export function assignDefaultRoomForAgent(
   const roomH = 4;
 
   // Clone grid immutably
-  let width = grid.width;
+  const width = grid.width;
   let height = grid.height;
   const tiles: Record<string, TileData> = { ...grid.tiles };
   const rooms: Record<string, RoomDefinition> = { ...grid.rooms };

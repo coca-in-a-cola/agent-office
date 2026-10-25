@@ -44,7 +44,9 @@ export function SkinCustomizerModal({ agentId, currentSkin, isOpen, onClose, onS
           setDraftSkin({ ...stored[agentId] });
           return;
         }
-      } catch {}
+      } catch {
+        // Ignore malformed localStorage JSON — draft falls back to the agent's current skin
+      }
       setDraftSkin({ ...currentSkin });
     }
   }, [currentSkin, isOpen, agentId]);

@@ -9,9 +9,10 @@ export async function waitForTelegram(timeoutMs = 4000): Promise<TelegramApp | u
   do {
     const app = (window as AuthWindow).Telegram?.WebApp;
     if (app?.initData) return app;
-    if (Date.now() >= deadline) return app;
     await new Promise((resolve) => setTimeout(resolve, 50));
-  } while (true);
+  } while (Date.now() < deadline);
+  // Deadline reached: return whatever the SDK has (may be undefined / missing initData)
+  return (window as AuthWindow).Telegram?.WebApp;
 }
 
 async function authRequest(path: string, init?: RequestInit) {
