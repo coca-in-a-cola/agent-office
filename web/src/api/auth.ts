@@ -1,3 +1,5 @@
+import { transport, HttpError } from './transport';
+
 export type AuthUser = { id: string; role: string; name?: string };
 type TelegramApp = { initData?: string; ready?: () => void; expand?: () => void };
 type AuthWindow = Window & { Telegram?: { WebApp?: TelegramApp } };
@@ -15,31 +17,61 @@ export async function waitForTelegram(timeoutMs = 4000): Promise<TelegramApp | u
   return (window as AuthWindow).Telegram?.WebApp;
 }
 
-async function authRequest(path: string, init?: RequestInit) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
+/**
+ * Internal helper: calls transport but returns null on 401 instead of throwing.
+ * Other non-ok statuses still throw (HttpError).
+ * Used only inside bootstrapAuth where a 401 on /api/auth/me is expected.
+ */
+async function meRequest(): Promise<AuthUser | null> {
   try {
-    return await fetch(path, { ...init, credentials: 'same-origin', signal: controller.signal });
-  } finally {
-    clearTimeout(timeout);
+    const data = await transport<{ user: AuthUser }>('/api/auth/me');
+    return data.user;
+  } catch (err) {
+    if (err instanceof HttpError && err.status === 401) return null;
+    throw err;
   }
 }
 
 export async function bootstrapAuth(): Promise<AuthUser | null> {
-  const me = await authRequest('/api/auth/me');
-  if (me.ok) return (await me.json()).user;
-  if (me.status !== 401) throw new Error(`Session check failed (HTTP ${me.status}). Retry Telegram sign-in.`);
+  const user = await meRequest();
+  if (user !== null) return user;
+  // 401 on initial me — unauthenticated; try Telegram SDK
   const app = await waitForTelegram();
   if (!app?.initData) return null;
   app.ready?.();
   app.expand?.();
-  const exchange = await authRequest('/api/auth/telegram', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ initData: app.initData }),
+  // Exchange signed initData for an HttpOnly session cookie
+  await transport<unknown>('/api/auth/telegram', {
+    method: 'POST',
+    body: { initData: app.initData },
+  }).catch((err: unknown) => {
+    if (err instanceof HttpError) {
+      throw new Error(`Telegram sign-in failed (HTTP ${err.status}). Close this Mini App and reopen it from the bot, then retry.`);
+    }
+    throw err;
   });
-  if (!exchange.ok) throw new Error(`Telegram sign-in failed (HTTP ${exchange.status}). Close this Mini App and reopen it from the bot, then retry.`);
   // Confirm the HttpOnly cookie actually round-trips before starting private polling.
-  const verified = await authRequest('/api/auth/me');
-  if (!verified.ok) throw new Error('Telegram session could not be saved. Reopen this Mini App from the bot and retry.');
-  return (await verified.json()).user;
+  const verified = await meRequest();
+  if (verified === null) throw new Error('Telegram session could not be saved. Reopen this Mini App from the bot and retry.');
+  return verified;
+}
+
+/**
+ * Typed login helper for password / access-token sign-in.
+ * Returns the authenticated user on success; throws Error on failure.
+ * Does NOT feed 401 into global query cache (this is the auth bootstrap, not a polling query).
+ */
+export async function loginWithPassword(secret: string): Promise<AuthUser> {
+  try {
+    const data = await transport<{ user: AuthUser }>('/api/auth/login', {
+      method: 'POST',
+      body: { password: secret, token: secret },
+    });
+    return data.user;
+  } catch (err) {
+    if (err instanceof HttpError) {
+      throw new Error(err.status === 401 ? 'Invalid password or access token.' : `Login failed (HTTP ${err.status}).`);
+    }
+    throw err;
+  }
 }

@@ -20,12 +20,9 @@ describe('gridPersistence client API', () => {
 
     globalThis.fetch = (async (url: string) => {
       if (url === '/api/office/grid') {
-        return {
-          ok: true,
-          json: async () => ({ status: 'ok', grid: sampleV2 }),
-        } as Response;
+        return Response.json({ status: 'ok', grid: sampleV2 });
       }
-      return { ok: false } as Response;
+      return new Response('', { status: 404 });
     }) as any;
 
     const grid = await fetchCampusGrid();
@@ -37,7 +34,16 @@ describe('gridPersistence client API', () => {
 
   it('fetchCampusGrid returns null on network failure or 404', async () => {
     globalThis.fetch = (async () => {
-      return { ok: false, status: 404 } as Response;
+      return new Response('', { status: 404 });
+    }) as any;
+
+    const grid = await fetchCampusGrid();
+    expect(grid).toBeNull();
+  });
+
+  it('fetchCampusGrid returns null on throw', async () => {
+    globalThis.fetch = (async () => {
+      throw new Error('Network error');
     }) as any;
 
     const grid = await fetchCampusGrid();
@@ -49,12 +55,9 @@ describe('gridPersistence client API', () => {
     globalThis.fetch = (async (url: string, init?: RequestInit) => {
       if (url === '/api/office/grid' && init?.method === 'POST') {
         capturedBody = JSON.parse(init.body as string);
-        return {
-          ok: true,
-          json: async () => ({ status: 'ok', saved: true }),
-        } as Response;
+        return Response.json({ status: 'ok', saved: true });
       }
-      return { ok: false } as Response;
+      return new Response('', { status: 404 });
     }) as any;
 
     const v2: CampusGridV2 = {
@@ -67,5 +70,25 @@ describe('gridPersistence client API', () => {
     const success = await saveCampusGrid(v2);
     expect(success).toBe(true);
     expect(capturedBody).toEqual({ grid: v2 });
+  });
+
+  it('saveCampusGrid returns false on HTTP error', async () => {
+    globalThis.fetch = (async () => {
+      return Response.json({ message: 'Server error' }, { status: 500 });
+    }) as any;
+
+    const v2: CampusGridV2 = { schemaVersion: 2, width: 4, height: 4, furniture: [] };
+    const success = await saveCampusGrid(v2);
+    expect(success).toBe(false);
+  });
+
+  it('saveCampusGrid returns false on network throw', async () => {
+    globalThis.fetch = (async () => {
+      throw new Error('Network error');
+    }) as any;
+
+    const v2: CampusGridV2 = { schemaVersion: 2, width: 4, height: 4, furniture: [] };
+    const success = await saveCampusGrid(v2);
+    expect(success).toBe(false);
   });
 });
