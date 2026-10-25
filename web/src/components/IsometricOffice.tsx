@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Agent } from '../types';
 import { StatusBadge } from './StatusBadge';
 import { deskStatusColor } from './WorkflowAssignmentBadge';
@@ -17,6 +17,8 @@ import { OfficeProp } from './office/props/OfficeProps';
 import { RenderIsometricTile } from './office/tiles/IsometricTiles';
 import { Hammer, Plus, Square, DoorOpen, Paintbrush } from 'lucide-react';
 import { usePanZoom } from '../hooks/usePanZoom';
+import { useCampusGridQuery, useCampusGridMutation } from '../hooks/useCampusGrid';
+import { shouldApplyServerGrid, shouldClearDirty } from '../hooks/campusGridGuards';
 import {
   ZoomIn,
   ZoomOut,
@@ -189,7 +191,13 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
   const [popoverId, setPopoverId] = useState<string | null>(null);
   const [activePipelineOverride, setActivePipelineOverride] = useState<string | null>(null);
   const [animationTick, setAnimationTick] = useState<number>(0);
+  // Local editable grid — initialised to default; server data applied once on
+  // first successful fetch (only when there are no pending unsaved changes).
   const [campusGrid, setCampusGrid] = useState<CampusGrid>(() => generateDefaultCampus());
+  const [isDirty, setIsDirty] = useState<boolean>(false);
+  // Monotonically incremented on EVERY local grid mutation so we can detect
+  // edits that arrive while a save is in-flight (edit-during-save guard).
+  const revisionRef = useRef<number>(0);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const [hoveredTileKey, setHoveredTileKey] = useState<string | null>(null);
   const [buildMode, setBuildMode] = useState<boolean>(false);
@@ -201,6 +209,22 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
       return {};
     }
   });
+
+  // --- TanStack Query: read ---
+  // Disabled while there are unsaved local edits so we never clobber them.
+  const gridQuery = useCampusGridQuery({ enabled: !isDirty });
+
+  // Apply server grid on first successful fetch (when not dirty).
+  // shouldApplyServerGrid() enforces the dirty-gate: a stale cache entry
+  // delivered while isDirty is true must never overwrite local edits.
+  useEffect(() => {
+    if (shouldApplyServerGrid(isDirty, gridQuery.data)) {
+      setCampusGrid(gridQuery.data);
+    }
+  }, [gridQuery.data, isDirty]);
+
+  // --- TanStack Query: write ---
+  const gridMutation = useCampusGridMutation();
 
   useEffect(() => {
     const handleSkinsUpdate = () => {
@@ -214,35 +238,25 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
     return () => window.removeEventListener('skins-updated', handleSkinsUpdate);
   }, []);
 
-  useEffect(() => {
-    fetch('/api/office/grid')
-      .then((r) => r.json())
-      .then((d) => {
-        if (d && d.status === 'ok' && d.grid && d.grid.tiles && Object.keys(d.grid.tiles).length > 0) {
-          setCampusGrid(d.grid);
-        }
-      })
-      .catch((err) => console.error('Failed to load campus grid from server', err));
-  }, []);
-
   const handleSaveCampus = async () => {
+    // Capture the revision at submit time.  If the user makes another edit
+    // while the request is in-flight, revisionRef.current will advance past
+    // savedRevision and we must NOT clear the dirty flag — those post-submit
+    // edits are still unsaved even though the earlier snapshot was accepted.
+    const savedRevision = revisionRef.current;
     setSaveStatus('Saving...');
-    try {
-      const res = await fetch('/api/office/grid', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ grid: campusGrid }),
-      });
-      const data = await res.json();
-      if (data.status === 'ok') {
-        setSaveStatus('Saved!');
-        setTimeout(() => setSaveStatus(null), 2500);
-      } else {
-        setSaveStatus('Error');
-        setTimeout(() => setSaveStatus(null), 2500);
-      }
-    } catch (err) {
+    const ok = await gridMutation.mutateAsync(campusGrid);
+    if (shouldClearDirty(savedRevision, revisionRef.current, ok)) {
+      setIsDirty(false);
+      setSaveStatus('Saved!');
+      setTimeout(() => setSaveStatus(null), 2500);
+    } else if (!ok) {
       setSaveStatus('Error');
+      setTimeout(() => setSaveStatus(null), 2500);
+    } else {
+      // ok===true but revision advanced: save succeeded but there are newer
+      // unsaved edits.  Surface a subtle hint without losing dirty state.
+      setSaveStatus('Saved (unsaved edits)');
       setTimeout(() => setSaveStatus(null), 2500);
     }
   };
@@ -250,6 +264,8 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
   const handleTileClick = (x: number, y: number) => {
     if (!buildMode) return;
     const key = `${x},${y}`;
+    revisionRef.current += 1;
+    setIsDirty(true);
     setCampusGrid((prev) => {
       const newTiles = { ...prev.tiles };
       const existing = newTiles[key] || { x, y, type: 'empty' };
@@ -584,11 +600,13 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
             <span>SKINS</span>
           </button>
           <button
-            onClick={() =>
+            onClick={() => {
+              revisionRef.current += 1;
+              setIsDirty(true);
               setCampusGrid((g) =>
                 assignDefaultRoomForAgent(g, `agent-${Date.now()}`, 'engineer', 'New Studio')
-              )
-            }
+              );
+            }}
             className="ml-auto px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border border-emerald-500/50 flex items-center gap-1 transition"
             title="Auto-generate and attach a new suite for a hired employee"
           >
