@@ -37,6 +37,7 @@ import {
   Navigation,
   Layers,
 } from 'lucide-react';
+import '../styles/components/legacy-office-controls.scss';
 
 interface IsometricOfficeProps {
   agents: Agent[];
@@ -438,51 +439,51 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
   }, [activeCourierInfo]);
 
   return (
-    <div className="relative w-full h-full flex flex-col items-center justify-center bg-radial-gradient overflow-hidden select-none">
+    <div className="office-campus-container legacy-office-controls">
       {/* Top Floating Controls */}
-      <div className="absolute top-4 left-4 z-20 flex flex-wrap items-center gap-2 bg-slate-900/85 backdrop-blur-md px-3.5 py-1.5 rounded-lg border border-slate-700/60 shadow-xl text-xs text-slate-300">
-        <span className="font-semibold text-slate-200 flex items-center gap-1.5">
-          <Layers size={13} className="text-cyan-400" />
+      <div className="legacy-office-controls__top-bar">
+        <span className="compound-label">
+          <Layers size={13} className="compound-icon" />
           Compound:
         </span>
-        <span className="text-cyan-300 font-mono text-[11px]">6-Suite Campus</span>
-        <span className="text-slate-600">|</span>
+        <span className="campus-name">6-Suite Campus</span>
+        <span className="divider">|</span>
         <button
           onClick={() => setZoom((z) => Math.min(Number((z + 0.15).toFixed(2)), 3.0))}
-          className="p-1 hover:text-white hover:bg-slate-800 rounded transition"
+          className="control-btn"
           title="Zoom In"
         >
           <ZoomIn size={14} />
         </button>
         <button
           onClick={() => setZoom((z) => Math.max(Number((z - 0.15).toFixed(2)), 0.35))}
-          className="p-1 hover:text-white hover:bg-slate-800 rounded transition"
+          className="control-btn"
           title="Zoom Out"
         >
           <ZoomOut size={14} />
         </button>
         <button
           onClick={reset}
-          className="p-1 hover:text-white hover:bg-slate-800 rounded transition"
+          className="control-btn"
           title="Reset View"
         >
           <RotateCcw size={14} />
         </button>
-        <span className="text-slate-400 pl-1 font-mono">{Math.round(zoom * 100)}%</span>
+        <span className="zoom-indicator">{Math.round(zoom * 100)}%</span>
 
-        <span className="text-slate-600 hidden sm:inline">|</span>
+        <span className="divider hide-mobile">|</span>
         {/* Task Courier Pipeline indicator */}
-        <div className="hidden md:flex items-center gap-1.5 bg-slate-950/80 px-2 py-0.5 rounded border border-cyan-500/30 text-[10.5px]">
-          <Zap size={11} className="text-amber-400 animate-pulse" />
-          <span className="text-slate-400">Task Courier:</span>
-          <span className="text-cyan-300 font-medium font-mono">{courierLabel}</span>
+        <div className="courier-badge">
+          <Zap size={11} className="courier-icon" />
+          <span className="courier-label">Task Courier:</span>
+          <span className="courier-value">{courierLabel}</span>
         </div>
       </div>
 
       {/* Office Floor Legend & Courier Pipeline Shortcuts */}
-      <div className="absolute bottom-4 left-4 z-20 flex flex-wrap items-center gap-1.5 max-w-[92vw] bg-slate-900/85 backdrop-blur-md px-3 py-2 rounded-lg border border-slate-700/60 shadow-xl text-xs">
-        <span className="text-slate-400 font-medium flex items-center gap-1 mr-1">
-          <Navigation size={12} className="text-cyan-400" />
+      <div className="legacy-office-controls__bottom-bar">
+        <span className="legend-label">
+          <Navigation size={12} className="legend-icon" />
           Suites:
         </span>
         {Object.entries(WORKSTATION_CONFIG).map(([id, conf]) => {
@@ -493,18 +494,14 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
             <button
               key={id}
               onClick={() => onSelectAgent(id)}
-              className={`flex items-center gap-1.5 px-2 py-1 rounded transition border text-[11px] ${
-                isSelected
-                  ? 'bg-slate-800 border-cyan-400 text-white shadow-sm ring-1 ring-cyan-400/40'
-                  : 'bg-slate-950/60 border-slate-800 text-slate-300 hover:border-slate-600'
-              }`}
+              className={`suite-btn ${isSelected ? 'suite-btn--selected' : ''}`}
             >
               <span
-                className={`w-2 h-2 rounded-full ${isWorking ? 'animate-ping' : ''}`}
+                className={`suite-dot ${isWorking ? 'suite-dot--working' : ''}`}
                 style={{ backgroundColor: conf.accentColor }}
               />
-              <span className="font-mono text-[9px] text-slate-400">{conf.suiteCode}</span>
-              <span className="font-medium">{conf.name}</span>
+              <span className="suite-code">{conf.suiteCode}</span>
+              <span className="suite-name">{conf.name}</span>
             </button>
           );
         })}
@@ -522,42 +519,34 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
             const nextIdx = (pipelines.indexOf(activeCourierInfo) + 1) % pipelines.length;
             setActivePipelineOverride(pipelines[nextIdx]);
           }}
-          className="ml-2 flex items-center gap-1 px-2 py-1 rounded bg-cyan-950/70 border border-cyan-500/40 text-cyan-300 hover:bg-cyan-900/60 text-[10.5px] font-mono transition"
+          className="dispatch-btn"
           title="Cycle task runner courier route"
         >
-          <Zap size={10} className="text-amber-400" />
+          <Zap size={10} className="dispatch-icon" />
           <span>Dispatch Courier</span>
         </button>
 
         <button
           onClick={() => setBuildMode((b) => !b)}
-          className={`ml-2 flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-medium transition ${
-            buildMode
-              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/50 shadow-[0_0_10px_rgba(245,158,11,0.25)]'
-              : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700/80 border border-slate-700'
-          }`}
+          className={`build-toggle-btn ${buildMode ? 'build-toggle-btn--active' : ''}`}
           title="Toggle The Sims Room & Corridor Build Mode"
         >
-          <Hammer size={12} className={buildMode ? 'text-amber-400' : 'text-slate-400'} />
+          <Hammer size={12} className={`build-toggle-icon ${buildMode ? 'build-toggle-icon--active' : ''}`} />
           <span>{buildMode ? 'Exit Build Mode' : 'The Sims Build Mode'}</span>
         </button>
       </div>
 
       {/* The Sims Build Mode Palette Toolbar */}
       {buildMode && (
-        <div className="w-full bg-slate-900/90 border-b border-amber-500/30 px-3 py-1.5 flex items-center gap-2 text-xs backdrop-blur-sm z-10 animate-fadeIn">
-          <span className="text-amber-400 font-semibold font-mono text-[10.5px] uppercase flex items-center gap-1 mr-1">
+        <div className="legacy-office-controls__build-toolbar">
+          <span className="build-label">
             <Hammer size={11} /> Build Tools:
           </span>
           {(['floor', 'wall_n', 'wall_w', 'door', 'corridor'] as const).map((tool) => (
             <button
               key={tool}
               onClick={() => setBuildTool(tool)}
-              className={`px-2 py-0.5 rounded text-[10px] font-mono transition flex items-center gap-1 ${
-                buildTool === tool
-                  ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
-                  : 'bg-slate-800/70 text-slate-300 hover:bg-slate-700 border border-slate-700'
-              }`}
+              className={`tool-btn ${buildTool === tool ? 'tool-btn--active' : ''}`}
             >
               {tool === 'floor' && <Paintbrush size={10} />}
               {(tool === 'wall_n' || tool === 'wall_w') && <Square size={10} />}
@@ -572,11 +561,7 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
               key={prop}
               type="button"
               onClick={() => setBuildTool(prop)}
-              className={`px-2 py-0.5 rounded text-[10px] font-mono transition flex items-center gap-1 cursor-pointer ${
-                buildTool === prop
-                  ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
-                  : 'bg-slate-800/70 text-slate-300 hover:bg-slate-700 border border-slate-700'
-              }`}
+              className={`tool-btn ${buildTool === prop ? 'tool-btn--active' : ''}`}
             >
               {prop === 'cooler' && <span>🚰 Cooler</span>}
               {prop === 'server' && <span>🖥️ Server</span>}
@@ -584,7 +569,7 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
               {prop === 'whiteboard' && <span>📋 Board</span>}
               {prop === 'plant' && <span>🪴 Plant</span>}
               {prop === 'sofa' && <span>🛋️ Sofa</span>}
-              {prop === 'eraser' && <span className="text-rose-400">🧹 Eraser</span>}
+              {prop === 'eraser' && <span className="eraser-label">🧹 Eraser</span>}
             </button>
           ))}
           <button
@@ -593,7 +578,7 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
               const targetAgent = agents[0]?.id || 'tyler';
               onSelectAgent(targetAgent);
             }}
-            className="px-2 py-0.5 rounded text-[10px] font-mono bg-purple-950/80 hover:bg-purple-900 text-purple-300 border border-purple-500/50 flex items-center gap-1 transition cursor-pointer"
+            className="skins-btn"
             title="Open Agent Inspector to customize character skin & limbs"
           >
             <Palette size={10} />
@@ -607,7 +592,7 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
                 assignDefaultRoomForAgent(g, `agent-${Date.now()}`, 'engineer', 'New Studio')
               );
             }}
-            className="ml-auto px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border border-emerald-500/50 flex items-center gap-1 transition"
+            className="new-suite-btn"
             title="Auto-generate and attach a new suite for a hired employee"
           >
             <Plus size={10} />
@@ -616,7 +601,7 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
           <button
             type="button"
             onClick={handleSaveCampus}
-            className="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold flex items-center gap-1 transition cursor-pointer shadow-sm"
+            className="save-campus-btn"
             title="Save current room and furniture layout to cloud database"
           >
             <span>💾 {saveStatus || 'SAVE LAYOUT'}</span>
@@ -625,10 +610,10 @@ export const IsometricOffice: React.FC<IsometricOfficeProps> = ({
       )}
 
       {/* Main Isometric SVG Compound Canvas */}
-      <div ref={containerRef} className="w-full h-full flex items-center justify-center p-3 touch-none">
+      <div ref={containerRef} className="legacy-office-controls__canvas-wrapper">
         <svg
           viewBox="-540 -320 1080 620"
-          className={`w-full h-full max-h-[90vh] ${isPanning ? '' : 'transition-transform duration-200 ease-out'}`}
+          className={`legacy-office-controls__canvas-svg ${isPanning ? 'legacy-office-controls__canvas-svg--panning' : ''}`}
           style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
         >
           <defs>

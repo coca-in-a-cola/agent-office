@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { X, Palette, Sparkles, Check } from 'lucide-react';
 import { CharacterSkin, CharacterHeadType, CharacterPose } from './characterTypes';
 import { ModularCharacter } from './ModularCharacter';
+import '../../styles/components/skin-customizer.scss';
 
 interface Props {
   agentId: string;
@@ -59,37 +60,35 @@ export function SkinCustomizerModal({ agentId, currentSkin, isOpen, onClose, onS
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-sm animate-fadeIn">
-      <div className="relative w-full max-w-2xl bg-slate-900 border border-slate-700/80 rounded-xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden text-slate-100">
+    <div className="skin-customizer-modal__overlay">
+      <div className="skin-customizer-modal__card">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 bg-slate-900/90">
-          <div className="flex items-center gap-2">
-            <Palette className="text-amber-400" size={18} />
-            <h2 className="font-semibold text-sm sm:text-base">Skin Customizer: {draftSkin.profileName || agentId}</h2>
+        <div className="skin-customizer-modal__header">
+          <div className="skin-customizer-modal__title-group">
+            <Palette className="skin-customizer-modal__title-icon" size={18} />
+            <h2 className="skin-customizer-modal__title">Skin Customizer: {draftSkin.profileName || agentId}</h2>
           </div>
-          <button onClick={onClose} className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200">
+          <button onClick={onClose} className="skin-customizer-modal__close-btn">
             <X size={18} />
           </button>
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="skin-customizer-modal__body">
           {/* Controls Left Column */}
-          <div className="space-y-4">
+          <div className="skin-customizer-modal__controls">
             {/* Swappable Heads */}
-            <div>
-              <label className="text-[11px] font-mono uppercase text-slate-400 font-semibold block mb-1.5">
+            <div className="skin-customizer-modal__section">
+              <label className="skin-customizer-modal__section-label">
                 Head Unit:
               </label>
-              <div className="grid grid-cols-2 gap-1.5">
+              <div className="skin-customizer-modal__head-grid">
                 {HEAD_TYPES.map(({ type, label }) => (
                   <button
                     key={type}
                     onClick={() => setDraftSkin(s => ({ ...s, headType: type }))}
-                    className={`px-2 py-1.5 rounded text-xs font-mono transition text-left border ${
-                      draftSkin.headType === type
-                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/80 font-bold'
-                        : 'bg-slate-800/60 text-slate-300 hover:bg-slate-800 border-slate-700/60'
+                    className={`skin-customizer-modal__head-btn ${
+                      draftSkin.headType === type ? 'skin-customizer-modal__head-btn--active' : ''
                     }`}
                   >
                     {label}
@@ -99,94 +98,94 @@ export function SkinCustomizerModal({ agentId, currentSkin, isOpen, onClose, onS
             </div>
 
             {/* Color Palette Presets */}
-            <div>
-              <label className="text-[11px] font-mono uppercase text-slate-400 font-semibold block mb-1.5">
+            <div className="skin-customizer-modal__section">
+              <label className="skin-customizer-modal__section-label">
                 Chassis & Limb Presets:
               </label>
-              <div className="grid grid-cols-2 gap-1.5">
+              <div className="skin-customizer-modal__preset-grid">
                 {PRESET_PALETTES.map(p => (
                   <button
                     key={p.name}
                     onClick={() => setDraftSkin(s => ({ ...s, primaryColor: p.primary, accentColor: p.accent, jointColor: p.joint }))}
-                    className="flex items-center gap-2 p-1.5 rounded bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 text-[11px] font-mono text-left"
+                    className="skin-customizer-modal__preset-btn"
                   >
-                    <span className="w-3.5 h-3.5 rounded-full border border-slate-600 flex-shrink-0" style={{ backgroundColor: p.accent }} />
-                    <span className="truncate text-slate-300">{p.name}</span>
+                    <span className="skin-customizer-modal__preset-swatch" style={{ backgroundColor: p.accent }} />
+                    <span className="skin-customizer-modal__preset-name">{p.name}</span>
                   </button>
                 ))}
               </div>
             </div>
 
             {/* Custom Color Pickers */}
-            <div className="grid grid-cols-3 gap-2 pt-1 border-t border-slate-800">
-              <div>
-                <label className="text-[10px] font-mono text-slate-400 block mb-1">Chassis</label>
+            <div className="skin-customizer-modal__picker-grid">
+              <div className="skin-customizer-modal__picker-field">
+                <label className="skin-customizer-modal__picker-label">Chassis</label>
                 <input
                   type="color"
                   value={draftSkin.primaryColor}
                   onChange={e => setDraftSkin(s => ({ ...s, primaryColor: e.target.value }))}
-                  className="w-full h-7 rounded cursor-pointer bg-slate-800 border border-slate-700 p-0.5"
+                  className="skin-customizer-modal__picker-input"
                 />
               </div>
-              <div>
-                <label className="text-[10px] font-mono text-slate-400 block mb-1">Accent</label>
+              <div className="skin-customizer-modal__picker-field">
+                <label className="skin-customizer-modal__picker-label">Accent</label>
                 <input
                   type="color"
                   value={draftSkin.accentColor}
                   onChange={e => setDraftSkin(s => ({ ...s, accentColor: e.target.value }))}
-                  className="w-full h-7 rounded cursor-pointer bg-slate-800 border border-slate-700 p-0.5"
+                  className="skin-customizer-modal__picker-input"
                 />
               </div>
-              <div>
-                <label className="text-[10px] font-mono text-slate-400 block mb-1">Joints</label>
+              <div className="skin-customizer-modal__picker-field">
+                <label className="skin-customizer-modal__picker-label">Joints</label>
                 <input
                   type="color"
                   value={draftSkin.jointColor}
                   onChange={e => setDraftSkin(s => ({ ...s, jointColor: e.target.value }))}
-                  className="w-full h-7 rounded cursor-pointer bg-slate-800 border border-slate-700 p-0.5"
+                  className="skin-customizer-modal__picker-input"
                 />
               </div>
             </div>
 
             {/* Accessories Toggles */}
-            <div className="pt-2 border-t border-slate-800">
-              <label className="text-[11px] font-mono uppercase text-slate-400 font-semibold block mb-1.5">
+            <div className="skin-customizer-modal__features-section">
+              <label className="skin-customizer-modal__section-label">
                 Accessories & Attachments:
               </label>
-              <div className="grid grid-cols-2 gap-1.5 text-xs font-mono">
-                <label className="flex items-center gap-1.5 bg-slate-800/40 p-1.5 rounded cursor-pointer">
+              <div className="skin-customizer-modal__features-grid">
+                <label className="skin-customizer-modal__feature-item">
                   <input
                     type="checkbox"
                     checked={Boolean(draftSkin.features?.monocle)}
                     onChange={e => setDraftSkin(s => ({ ...s, features: { ...s.features, monocle: e.target.checked } }))}
-                    className="rounded bg-slate-900 border-slate-700 text-amber-500"
+                    className="skin-customizer-modal__feature-checkbox"
                   />
                   <span>Monocle</span>
                 </label>
-                <label className="flex items-center gap-1.5 bg-slate-800/40 p-1.5 rounded cursor-pointer">
+                <label className="skin-customizer-modal__feature-item">
                   <input
                     type="checkbox"
                     checked={Boolean(draftSkin.features?.dualExhaust)}
                     onChange={e => setDraftSkin(s => ({ ...s, features: { ...s.features, dualExhaust: e.target.checked } }))}
-                    className="rounded bg-slate-900 border-slate-700 text-amber-500"
+                    className="skin-customizer-modal__feature-checkbox"
                   />
                   <span>Dual Exhaust</span>
                 </label>
-                <label className="flex items-center gap-1.5 bg-slate-800/40 p-1.5 rounded cursor-pointer">
+                <label className="skin-customizer-modal__feature-item">
                   <input
                     type="checkbox"
                     checked={Boolean(draftSkin.features?.antennaOrb)}
                     onChange={e => setDraftSkin(s => ({ ...s, features: { ...s.features, antennaOrb: e.target.checked } }))}
-                    className="rounded bg-slate-900 border-slate-700 text-amber-500"
+                    className="skin-customizer-modal__feature-checkbox"
                   />
                   <span>Antenna Beacon</span>
                 </label>
-                <label className="flex items-center gap-1.5 bg-slate-800/40 p-1.5 rounded cursor-pointer">
+                <label className="skin-customizer-modal__feature-item">
                   <input
                     type="checkbox"
                     checked={Boolean(draftSkin.features?.loupe)}
                     onChange={e => setDraftSkin(s => ({ ...s, features: { ...s.features, loupe: e.target.checked } }))}
-                    className="rounded bg-slate-900 border-slate-700 text-amber-500"
+                    className="skin-customizer-modal__feature-checkbox"
                   />
                   <span>Loupe / Lens</span>
                 </label>
@@ -195,31 +194,29 @@ export function SkinCustomizerModal({ agentId, currentSkin, isOpen, onClose, onS
           </div>
 
           {/* Live Preview Stage Right Column */}
-          <div className="flex flex-col items-center justify-between bg-slate-950/60 border border-slate-800 rounded-lg p-3">
-            <div className="w-full flex items-center justify-between text-xs text-slate-400 font-mono pb-2 border-b border-slate-800/80">
-              <span className="flex items-center gap-1 text-amber-300"><Sparkles size={12} /> Live Rig Stage</span>
-              <span className="capitalize">{previewPose.replace('_', ' ')}</span>
+          <div className="skin-customizer-modal__stage-column">
+            <div className="skin-customizer-modal__stage-header">
+              <span className="skin-customizer-modal__stage-title"><Sparkles size={12} /> Live Rig Stage</span>
+              <span className="skin-customizer-modal__stage-pose-name">{previewPose.replace('_', ' ')}</span>
             </div>
 
             {/* SVG Stage */}
-            <div className="w-full h-48 flex items-center justify-center relative overflow-hidden my-auto">
-              <div className="absolute inset-0 bg-radial-gradient from-amber-500/10 via-slate-900/0 to-transparent pointer-events-none" />
-              <svg viewBox="-80 -80 160 160" className="w-40 h-40">
+            <div className="skin-customizer-modal__stage-view">
+              <div className="skin-customizer-modal__stage-glow" />
+              <svg viewBox="-80 -80 160 160" className="skin-customizer-modal__stage-svg">
                 <ellipse cx="0" cy="40" rx="45" ry="15" fill="#000000" opacity="0.4" />
                 <ModularCharacter skin={draftSkin} pose={previewPose} scale={1.25} />
               </svg>
             </div>
 
             {/* Pose Switcher Buttons */}
-            <div className="w-full flex items-center gap-1 pt-2 border-t border-slate-800/80">
+            <div className="skin-customizer-modal__pose-bar">
               {(['seated_work', 'seated_sleep', 'walking'] as const).map(p => (
                 <button
                   key={p}
                   onClick={() => setPreviewPose(p)}
-                  className={`flex-1 py-1 rounded text-[10.5px] font-mono transition capitalize ${
-                    previewPose === p
-                      ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
-                      : 'bg-slate-800/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                  className={`skin-customizer-modal__pose-btn ${
+                    previewPose === p ? 'skin-customizer-modal__pose-btn--active' : ''
                   }`}
                 >
                   {p === 'seated_work' && '💻 Work'}
@@ -232,13 +229,13 @@ export function SkinCustomizerModal({ agentId, currentSkin, isOpen, onClose, onS
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-2 px-4 py-2.5 border-t border-slate-800 bg-slate-900/90">
-          <button onClick={onClose} className="px-3 py-1.5 rounded text-xs font-mono text-slate-400 hover:text-slate-200">
+        <div className="skin-customizer-modal__footer">
+          <button onClick={onClose} className="skin-customizer-modal__cancel-btn">
             Cancel
           </button>
           <button
             onClick={handleSave}
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-xs font-mono transition shadow-md"
+            className="skin-customizer-modal__save-btn"
           >
             <Check size={14} />
             <span>Apply Skin</span>
