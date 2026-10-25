@@ -1,6 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { queryClient, resetOnAuthChange } from './api/queryClient';
 import { OfficeState, StudioFocus } from './types';
 import { bootstrapAuth } from './api/auth';
+import { useOfficeState } from './hooks/useOfficeState';
 import { IsometricOffice } from './components/IsometricOffice';
 import { EmployeeRoster } from './components/EmployeeRoster';
 import { AgentInspector } from './components/AgentInspector';
@@ -90,10 +93,7 @@ const PixiOfficeCanvas = React.lazy<React.ComponentType<{
 );
 
 const MainOfficeApp: React.FC = () => {
-  const [state, setState] = useState<OfficeState>(FALLBACK_STATE);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>('coder');
-  const [isLive, setIsLive] = useState<boolean>(false);
-  const [lastSync, setLastSync] = useState<Date>(new Date());
   const [isInspectorOpen, setIsInspectorOpen] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<OfficeTab>('office');
   const initialView: View = (typeof window !== 'undefined' && (new URLSearchParams(window.location.search).get('studio') === 'true' || window.location.hash === '#studio')) ? 'studio' : 'tycoon';
@@ -106,6 +106,26 @@ const MainOfficeApp: React.FC = () => {
   const [loginSecret, setLoginSecret] = useState('');
   const [loginPending, setLoginPending] = useState(false);
   const [loginError, setLoginError] = useState('');
+
+  // Clear query cache on auth identity transitions
+  const handleSetAuthUser = useCallback((user: { id: string; role: string; name?: string } | null) => {
+    setAuthUser((prev) => {
+      if (prev?.id !== user?.id) resetOnAuthChange();
+      return user;
+    });
+  }, []);
+
+  const handleAuthExpired = useCallback(() => {
+    handleSetAuthUser(null);
+  }, [handleSetAuthUser]);
+
+  // --- TanStack Query: /api/state polling ---
+  const { state: liveState, isLive, lastSync } = useOfficeState({
+    enabled: !!authUser,
+    onAuthExpired: handleAuthExpired,
+  });
+  const state = liveState ?? FALLBACK_STATE;
+  const lastSyncDate = lastSync ?? new Date();
 
   const login = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -120,7 +140,7 @@ const MainOfficeApp: React.FC = () => {
       if (!response.ok) throw new Error(response.status === 401 ? 'Invalid password or access token.' : `Login failed (HTTP ${response.status}).`);
       const data = await response.json();
       setLoginSecret('');
-      setAuthUser(data.user);
+      handleSetAuthUser(data.user);
     } catch (error) {
       setLoginError(error instanceof Error ? error.message : 'Login failed.');
     } finally {
@@ -141,42 +161,21 @@ const MainOfficeApp: React.FC = () => {
     switchView('studio');
   };
 
-  const fetchState = async () => {
-    try {
-      const res = await fetch('/api/state');
-      if (res.status === 401) setAuthUser(null);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data: OfficeState = await res.json();
-      setState(data);
-      setIsLive(true);
-      setLastSync(new Date());
-    } catch {
-      setIsLive(false);
-    }
-  };
-
   const initAuth = useCallback(async () => {
     setAuthReady(false);
     setLoginError('');
     try {
       const user = await bootstrapAuth();
-      setAuthUser(user);
+      handleSetAuthUser(user);
       if (!user) setLoginError('No signed Telegram session was received. Open this Mini App from the bot. If already in Telegram, close and reopen it, then retry.');
     } catch (error) {
       setLoginError(error instanceof Error && error.name !== 'AbortError' ? error.message : 'Telegram sign-in timed out or could not connect. Check your connection and retry.');
     } finally {
       setAuthReady(true);
     }
-  }, []);
+  }, [handleSetAuthUser]);
 
   useEffect(() => { void initAuth(); }, [initAuth]);
-
-  useEffect(() => {
-    if (!authUser) return;
-    fetchState();
-    const interval = setInterval(fetchState, 2500);
-    return () => clearInterval(interval);
-  }, [authUser]);
 
   const selectedAgent = state.agents.find(
     (a) => a.id.toLowerCase() === (selectedAgentId || '').toLowerCase()
@@ -224,7 +223,7 @@ const MainOfficeApp: React.FC = () => {
         </nav>}
         <div className="header-status">
           <div className="user-badge"><span>{authUser?.name || authUser?.id || 'Guest'}</span><small>{authUser?.role || 'Viewer'}</small></div>
-          <time className="sync-time">Sync: {lastSync.toLocaleTimeString()}</time>
+          <time className="sync-time">Sync: {lastSyncDate.toLocaleTimeString()}</time>
           <span className={`connection-status ${isLive ? 'is-live' : 'is-offline'}`} role="status"><i /><span>{isLive ? 'Live API' : 'Offline'}</span></span>
         </div>
       </header>
@@ -284,5 +283,9 @@ const MainOfficeApp: React.FC = () => {
 };
 
 export const App: React.FC = () => {
-  return <MainOfficeApp />;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <MainOfficeApp />
+    </QueryClientProvider>
+  );
 };

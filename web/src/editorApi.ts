@@ -1,3 +1,6 @@
+// Editor API client — uses universal transport.
+// ConflictError (409) and EditorApiError preserved for consumer compatibility.
+import { transport, HttpError } from './api/transport';
 import {
   DraftRecord,
   DraftSummary,
@@ -31,27 +34,28 @@ export class EditorApiError extends Error {
   }
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const headers = new Headers(options.headers || {});
-  if (!headers.has('Content-Type') && options.body) {
-    headers.set('Content-Type', 'application/json');
-  }
-
-  const res = await fetch(path, { ...options, headers });
-  const data = await res.json().catch(() => ({}));
-
-  if (!res.ok) {
-    if (res.status === 409) {
-      throw new ConflictError(
-        data.message || 'Draft revision conflict (optimistic concurrency)',
-        data.current_revision ?? 0,
-        data.expected_revision
+async function request<T>(path: string, options: { method?: string; body?: string } = {}): Promise<T> {
+  try {
+    const body = options.body !== undefined ? JSON.parse(options.body) : undefined;
+    return await transport<T>(path, { method: options.method || 'GET', body });
+  } catch (e) {
+    if (e instanceof HttpError) {
+      const data = e.body as Record<string, unknown> | null;
+      if (e.status === 409) {
+        throw new ConflictError(
+          (data?.message as string) || 'Draft revision conflict (optimistic concurrency)',
+          (data?.current_revision as number) ?? 0,
+          data?.expected_revision as number | undefined,
+        );
+      }
+      throw new EditorApiError(
+        e.status,
+        e.message,
+        data?.errors as string[] | undefined,
       );
     }
-    throw new EditorApiError(res.status, data.message || `HTTP ${res.status}`, data.errors);
+    throw e;
   }
-
-  return data as T;
 }
 
 export const editorApi = {

@@ -1,4 +1,6 @@
 // Thin fetch client for the Process Studio workflow API.
+// Uses universal transport; WorkflowApiError preserved for consumer compatibility.
+import { transport, HttpError } from './api/transport';
 import {
   DefinitionSummary,
   RunDetail,
@@ -13,26 +15,17 @@ export class WorkflowApiError extends Error {
   }
 }
 
+const PREFIX = '/api/workflow';
+
 async function request<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`/api/workflow${path}`, {
-    method,
-    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  let data: unknown = null;
   try {
-    data = await res.json();
-  } catch {
-    // non-JSON body (e.g. proxy error page)
+    return await transport<T>(path, { method, body, prefix: PREFIX });
+  } catch (e) {
+    if (e instanceof HttpError) {
+      throw new WorkflowApiError(e.status, e.message);
+    }
+    throw e;
   }
-  if (!res.ok) {
-    const message =
-      data && typeof data === 'object' && 'message' in data
-        ? String((data as { message: unknown }).message)
-        : `HTTP ${res.status}`;
-    throw new WorkflowApiError(res.status, message);
-  }
-  return data as T;
 }
 
 const enc = encodeURIComponent;

@@ -4,6 +4,11 @@
   "private": true,
   "scripts": {
     "build": "cd web && bun run build",
-    "dev": "cd web && bun run dev"
+    "dev": "cd web && bun run dev",
+    "typecheck": "cd web && bun run typecheck",
+    "lint": "cd web && bun run lint",
+    "lint:fix": "cd web && bun run lint:fix",
+    "format:check": "cd web && bun run format:check",
+    "format:write": "cd web && bun run format:write"
   }
 }
