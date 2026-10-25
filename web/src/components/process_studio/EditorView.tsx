@@ -14,6 +14,7 @@ import {
   ReactFlowProvider,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+import '../../styles/components/editor-view.scss';
 
 import {
   Save,
@@ -685,27 +686,27 @@ export const EditorViewInner: React.FC<EditorViewProps> = ({
   const selectedNode = graph.nodes.find((n) => n.id === selectedNodeId) || null;
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[#080c14] text-slate-100 overflow-hidden relative font-sans">
+    <div className="ps-editor-view">
       {/* Top Toolbar */}
-      <div className="h-12 border-b border-slate-800 bg-[#0f172a]/95 backdrop-blur-md px-3 sm:px-5 flex items-center justify-between gap-2 z-20 shrink-0">
-        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-          <div className="flex items-center gap-1.5 font-bold text-xs sm:text-sm text-slate-100 shrink-0">
-            <Edit3 size={15} className="text-cyan-400" />
-            <span className="hidden sm:inline">Process Studio</span>
-            <span className="text-[10px] font-mono bg-cyan-950 text-cyan-300 px-1.5 py-0.5 rounded border border-cyan-800/60 uppercase">
+      <div className="ps-editor-view__toolbar">
+        <div className="ps-editor-view__toolbar-left">
+          <div className="ps-editor-view__title-group">
+            <Edit3 size={15} className="ps-editor-view__title-icon" />
+            <span className="ps-editor-view__title-text">Process Studio</span>
+            <span className="ps-editor-view__title-badge">
               Editor
             </span>
           </div>
 
-          <div className="h-4 w-px bg-slate-800 shrink-0 hidden sm:block" />
+          <div className="ps-editor-view__divider ps-editor-view__divider--hidden-sm" />
 
           {/* Draft Selection */}
-          <div className="flex items-center gap-1 text-[11px] font-mono">
-            <span className="text-slate-500 hidden md:inline">Draft:</span>
+          <div className="ps-editor-view__draft-selector">
+            <span className="ps-editor-view__draft-label">Draft:</span>
             <select
               value={draftId}
               onChange={(e) => setDraftId(e.target.value)}
-              className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-200 text-xs focus:border-cyan-400 focus:outline-none"
+              className="ps-editor-view__draft-select"
             >
               {draftsList.map((d) => (
                 <option key={d} value={d}>
@@ -713,22 +714,22 @@ export const EditorViewInner: React.FC<EditorViewProps> = ({
                 </option>
               ))}
             </select>
-            <span className="text-[10px] text-slate-400 hidden lg:inline">
+            <span className="ps-editor-view__draft-revision">
               (rev {revision})
             </span>
             {isDirty && (
-              <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" title="Unsaved changes" />
+              <span className="ps-editor-view__dirty-indicator" title="Unsaved changes" />
             )}
           </div>
         </div>
 
         {/* Action Controls */}
-        <div className="flex items-center gap-1 sm:gap-1.5">
+        <div className="ps-editor-view__actions">
           {/* Undo / Redo */}
           <button
             onClick={handleUndo}
             disabled={undoStack.length === 0}
-            className="p-1.5 rounded-lg border border-slate-800 bg-slate-900 text-slate-300 hover:text-white disabled:opacity-30 transition"
+            className="ps-editor-view__btn-history"
             title="Undo (Ctrl+Z)"
           >
             <RotateCcw size={13} />
@@ -736,69 +737,69 @@ export const EditorViewInner: React.FC<EditorViewProps> = ({
           <button
             onClick={handleRedo}
             disabled={redoStack.length === 0}
-            className="p-1.5 rounded-lg border border-slate-800 bg-slate-900 text-slate-300 hover:text-white disabled:opacity-30 transition"
+            className="ps-editor-view__btn-history"
             title="Redo (Ctrl+Y)"
           >
             <RotateCw size={13} />
           </button>
 
-          <div className="h-4 w-px bg-slate-800 shrink-0 mx-0.5" />
+          <div className="ps-editor-view__divider ps-editor-view__divider--mx" />
 
           {/* Add Node */}
           <button
             onClick={() => setIsCatalogOpen(true)}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-700 bg-slate-900 text-slate-200 hover:border-cyan-400 text-xs font-medium transition"
+            className="ps-editor-view__btn-add"
           >
-            <Plus size={13} className="text-cyan-400" />
-            <span className="hidden sm:inline">Add Node</span>
+            <Plus size={13} className="ps-editor-view__btn-icon" />
+            <span className="ps-editor-view__btn-label">Add Node</span>
           </button>
 
           {/* Validate */}
           <button
             onClick={handleValidate}
             disabled={isValidating}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-700 bg-slate-900 text-slate-200 hover:border-emerald-400 text-xs font-medium transition"
+            className="ps-editor-view__btn-validate"
             title="Validate graph contracts and port schemas"
           >
-            <CheckCircle2 size={13} className="text-emerald-400" />
-            <span className="hidden md:inline">Validate</span>
+            <CheckCircle2 size={13} className="ps-editor-view__btn-icon" />
+            <span className="ps-editor-view__btn-label">Validate</span>
           </button>
 
           {/* Save Draft */}
           <button
             onClick={() => handleSaveDraft()}
             disabled={isSaving}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-semibold text-xs transition disabled:opacity-40"
+            className="ps-editor-view__btn-save"
             title="Save draft layout & structure"
           >
             <Save size={13} />
-            <span className="hidden sm:inline">Save</span>
+            <span className="ps-editor-view__btn-label">Save</span>
           </button>
 
           {/* Publish */}
           <button
             onClick={handlePublish}
             disabled={isPublishing}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition disabled:opacity-40"
+            className="ps-editor-view__btn-publish"
             title="Publish new immutable workflow definition"
           >
             <UploadCloud size={13} />
-            <span className="hidden sm:inline">Publish</span>
+            <span className="ps-editor-view__btn-label">Publish</span>
           </button>
 
-          <div className="h-4 w-px bg-slate-800 shrink-0 mx-0.5" />
+          <div className="ps-editor-view__divider ps-editor-view__divider--mx" />
 
           {/* Switch to Observe Mode */}
           {onSwitchToObserve && (
             <button
               onClick={onSwitchToObserve}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-purple-800/80 bg-purple-950/60 text-purple-200 hover:bg-purple-900 text-xs font-medium transition"
+              className="ps-editor-view__btn-observe"
               title={activeRunId ? `Switch to Observe (active run: ${activeRunId})` : 'Switch to Live Observe / Monitor Mode'}
             >
-              <Eye size={13} className="text-purple-400" />
-              <span className="hidden lg:inline">Observe</span>
+              <Eye size={13} className="ps-editor-view__btn-icon" />
+              <span className="ps-editor-view__btn-label">Observe</span>
               {activeRunId && (
-                <span className="text-[10px] font-mono text-purple-300 ml-1">
+                <span className="ps-editor-view__btn-run-id">
                   ({activeRunId})
                 </span>
               )}
@@ -809,12 +810,12 @@ export const EditorViewInner: React.FC<EditorViewProps> = ({
 
       {/* Connection Rejection Banner */}
       {connectionError && (
-        <div className="bg-rose-950/90 border-b border-rose-800 px-4 py-1.5 text-xs text-rose-200 flex items-center justify-between gap-2 z-10 animate-in slide-in-from-top duration-150">
-          <div className="flex items-center gap-1.5 font-medium">
-            <AlertTriangle size={14} className="text-rose-400 shrink-0" />
+        <div className="ps-editor-view__error-banner">
+          <div className="ps-editor-view__error-content">
+            <AlertTriangle size={14} className="ps-editor-view__error-icon" />
             <span>Connection Rejected: {connectionError}</span>
           </div>
-          <button onClick={() => setConnectionError(null)} className="text-rose-300 hover:text-white">
+          <button onClick={() => setConnectionError(null)} className="ps-editor-view__error-close">
             <X size={14} />
           </button>
         </div>
@@ -822,22 +823,22 @@ export const EditorViewInner: React.FC<EditorViewProps> = ({
 
       {/* Validation Errors Header Banner */}
       {validationErrors.length > 0 && (
-        <div className="bg-rose-950/90 border-b border-rose-800 px-4 py-2 text-xs text-rose-200 flex items-center justify-between gap-2 z-10">
-          <div className="flex items-center gap-2">
-            <ShieldAlert size={15} className="text-rose-400 shrink-0" />
-            <span className="font-semibold">
+        <div className="ps-editor-view__validation-banner">
+          <div className="ps-editor-view__validation-content">
+            <ShieldAlert size={15} className="ps-editor-view__validation-icon" />
+            <span className="ps-editor-view__validation-title">
               {validationErrors.length} Schema/Contract Violation(s) Detected
             </span>
           </div>
-          <button onClick={() => setValidationErrors([])} className="text-rose-300 hover:text-white">
+          <button onClick={() => setValidationErrors([])} className="ps-editor-view__validation-close">
             <X size={14} />
           </button>
         </div>
       )}
 
       {/* Main Canvas + Properties Drawer */}
-      <div className="flex-1 flex overflow-hidden relative">
-        <div className="flex-1 h-full w-full relative">
+      <div className="ps-editor-view__main">
+        <div className="ps-editor-view__canvas-wrapper">
           <ReactFlow
             nodes={flowNodes}
             edges={flowEdges}
@@ -851,7 +852,7 @@ export const EditorViewInner: React.FC<EditorViewProps> = ({
             minZoom={0.2}
             maxZoom={2.5}
             proOptions={{ hideAttribution: true }}
-            className="bg-[#080c14]"
+            className="ps-editor-view__flow"
           >
             <Background
               variant={BackgroundVariant.Dots}
@@ -859,33 +860,29 @@ export const EditorViewInner: React.FC<EditorViewProps> = ({
               size={1.5}
               color="#1e293b"
             />
-            <Controls className="!bg-slate-900 !border-slate-800 !rounded-lg overflow-hidden [&>button]:!bg-slate-900 [&>button]:!border-slate-800 [&>button]:!text-slate-300 hover:[&>button]:!bg-slate-800" />
+            <Controls className="ps-editor-view__controls" />
             <MiniMap
               nodeStrokeColor="#06b6d4"
               nodeColor="#1e293b"
               maskColor="rgba(8, 12, 20, 0.7)"
-              className="!bg-slate-950/90 !border !border-slate-800 !rounded-lg overflow-hidden"
+              className="ps-editor-view__minimap"
             />
           </ReactFlow>
 
           {/* Toast Notification */}
           {toastMessage && (
             <div
-              className={`absolute bottom-4 left-4 z-40 px-3.5 py-2 rounded-lg border shadow-xl flex items-center gap-2 text-xs font-medium backdrop-blur-md animate-in fade-in slide-in-from-bottom duration-200 ${
-                toastMessage.type === 'success'
-                  ? 'bg-emerald-950/90 border-emerald-500/60 text-emerald-200'
-                  : toastMessage.type === 'error'
-                  ? 'bg-rose-950/90 border-rose-500/60 text-rose-200'
-                  : 'bg-slate-900/90 border-slate-700 text-slate-200'
-              }`}
+              className={`ps-editor-view__toast ps-editor-view__toast--${toastMessage.type}`}
             >
-              {toastMessage.type === 'success' ? (
-                <CheckCircle2 size={14} className="text-emerald-400" />
-              ) : toastMessage.type === 'error' ? (
-                <AlertTriangle size={14} className="text-rose-400" />
-              ) : (
-                <Info size={14} className="text-cyan-400" />
-              )}
+              <span className="ps-editor-view__toast-icon">
+                {toastMessage.type === 'success' ? (
+                  <CheckCircle2 size={14} />
+                ) : toastMessage.type === 'error' ? (
+                  <AlertTriangle size={14} />
+                ) : (
+                  <Info size={14} />
+                )}
+              </span>
               <span>{toastMessage.text}</span>
             </div>
           )}
