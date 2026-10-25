@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, Building, Edit3, Eye, GitBranch, X } from 'lucide-react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { StudioFocus } from '../../types';
-import { RunCommand, workflowApi } from '../../workflowApi';
+import { workflowApi, workflowKeys } from '../../workflowApi';
+import type { RunCommand } from '../../workflowApi';
 import {
   DefinitionSummary,
   NodeState,
@@ -15,6 +17,11 @@ import { NODE_STATE_STYLE, NodeStatusBadge } from './NodeStatusBadge';
 import { RunInspector } from './RunInspector';
 import { WorkflowSelector } from './WorkflowSelector';
 import { EditorView } from './EditorView';
+import { getAuthEpoch } from '../../api/queryClient';
+import {
+  commandMutationOptions,
+  createRunMutationOptions,
+} from '../../api/studioMutations';
 
 const POLL_MS = 2500;
 const LEGEND: NodeState[] = [
@@ -34,119 +41,174 @@ interface ProcessStudioProps {
 }
 
 export const ProcessStudio: React.FC<ProcessStudioProps> = ({ focus = null, onDismissFocus }) => {
+  const qc = useQueryClient();
+
+  // -------------------------------------------------------------------------
+  // Local UI state (never derived from server; owned by this component)
+  // -------------------------------------------------------------------------
   const [studioMode, setStudioMode] = useState<'observe' | 'edit'>('edit');
-  const [definitions, setDefinitions] = useState<DefinitionSummary[]>([]);
-  const [definitionCache, setDefinitionCache] = useState<Record<string, WorkflowDefinition>>({});
-  const [runs, setRuns] = useState<RunSummary[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(focus?.runId ?? null);
-  const [detail, setDetail] = useState<RunDetail | null>(null);
   const [selectedNode, setSelectedNode] = useState<string | null>(focus?.node ?? null);
-  const [error, setError] = useState<string | null>(null);
-  const [offline, setOffline] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [mutationError, setMutationError] = useState<string | null>(null);
 
-  const ensureDefinition = useCallback(
-    async (hash: string) => {
-      if (!hash || definitionCache[hash]) return;
-      const def = await workflowApi.getDefinition(hash);
-      setDefinitionCache((cache) => ({ ...cache, [hash]: def }));
-    },
-    [definitionCache]
-  );
-
-  // Definitions once (they are immutable and hash-pinned).
-  useEffect(() => {
-    workflowApi
-      .listDefinitions()
-      .then((data) => {
-        setDefinitions(data.definitions);
-        return ensureDefinition(data.canonical_hash);
-      })
-      .catch((e: Error) => setError(`Workflow API unavailable: ${e.message}`));
-    // Mount-only: ensureDefinition is stable enough for the first load.
-  }, []);
-
-  const refresh = useCallback(async () => {
-    try {
-      const data = await workflowApi.listRuns();
-      setRuns(data.runs);
-      setOffline(false);
-      const runId =
-        selectedRunId ?? (data.runs.find((r) => r.active) ?? data.runs[0])?.run_id ?? null;
-      if (runId !== selectedRunId) setSelectedRunId(runId);
-      if (runId) {
-        const d = await workflowApi.getRun(runId);
-        setDetail(d);
-        await ensureDefinition(d.run.definition_hash);
-      } else {
-        setDetail(null);
-      }
-    } catch {
-      setOffline(true);
-    }
-  }, [selectedRunId, ensureDefinition]);
-
-  useEffect(() => {
-    void refresh();
-    const timer = setInterval(() => void refresh(), POLL_MS);
-    return () => clearInterval(timer);
-  }, [refresh]);
-
+  // -------------------------------------------------------------------------
+  // Focus prop effect — switch to observe mode and sync selection
+  // -------------------------------------------------------------------------
   useEffect(() => {
     if (!focus) return;
     setStudioMode('observe');
     setSelectedRunId(focus.runId);
     setSelectedNode(focus.node);
-    setDetail((d) => (d?.run.run_id === focus.runId ? d : null));
   }, [focus?.nonce]);
 
-  const linked = focus && detail?.run.run_id === focus.runId ? focus : null;
+  // -------------------------------------------------------------------------
+  // Server queries
+  // -------------------------------------------------------------------------
+
+  // Definitions list — fetch once (immutable, hash-pinned)
+  const definitionsQuery = useQuery({
+    queryKey: workflowKeys.definitions(),
+    queryFn: ({ signal }) => workflowApi.listDefinitions(signal),
+    // Very long stale time — definitions are hash-pinned and never mutate
+    staleTime: Infinity,
+  });
+
+  const definitionsList: DefinitionSummary[] = definitionsQuery.data?.definitions ?? [];
+  const canonicalHashFromDefs = definitionsList.find((d) => d.canonical)?.definition_hash ?? '';
+
+  // Runs list — poll every POLL_MS
+  const runsQuery = useQuery({
+    queryKey: workflowKeys.runs(),
+    queryFn: ({ signal }) => workflowApi.listRuns(signal),
+    refetchInterval: POLL_MS,
+    staleTime: 0,
+  });
+
+  const runs: RunSummary[] = runsQuery.data?.runs ?? [];
+  const offline = runsQuery.isError && !runsQuery.isLoading;
+
+  // Derive effective selectedRunId — auto-select active/first on initial load
+  // (use a ref-like pattern via derived value, not a side-effect setter that
+  //  causes stale closure loops)
+  const effectiveRunId: string | null = (() => {
+    if (selectedRunId) return selectedRunId;
+    if (runs.length === 0) return null;
+    return (runs.find((r) => r.active) ?? runs[0])?.run_id ?? null;
+  })();
+
+  // Sync selectedRunId state when auto-selection resolves (first load only)
+  useEffect(() => {
+    if (!selectedRunId && effectiveRunId) {
+      setSelectedRunId(effectiveRunId);
+    }
+  }, [effectiveRunId]);
+
+  // Selected run detail — poll every POLL_MS (only when a run is selected)
+  const runDetailQuery = useQuery({
+    queryKey: workflowKeys.run(effectiveRunId ?? ''),
+    queryFn: ({ signal }) => workflowApi.getRun(effectiveRunId!, signal),
+    enabled: Boolean(effectiveRunId),
+    refetchInterval: POLL_MS,
+    staleTime: 0,
+  });
+
+  const detail: RunDetail | null = runDetailQuery.data ?? null;
+
+  // Immutable definition for the selected run's definition_hash (staleTime=Infinity)
+  const runDefHash = detail?.run.definition_hash ?? '';
+  const defHashToLoad = runDefHash || canonicalHashFromDefs;
+
+  const definitionQuery = useQuery({
+    queryKey: workflowKeys.definition(defHashToLoad),
+    queryFn: ({ signal }) => workflowApi.getDefinition(defHashToLoad, signal),
+    enabled: Boolean(defHashToLoad),
+    staleTime: Infinity,
+  });
+
+  const definition: WorkflowDefinition | null = definitionQuery.data ?? null;
+
+  // -------------------------------------------------------------------------
+  // Offline / error banner logic
+  // -------------------------------------------------------------------------
+  // Show a banner on:
+  //  - runsQuery error (network offline / API down) — message "retrying"
+  //  - definitionsQuery error — message with full text
+  //  - mutation error — message with command info + dismiss button
+  const networkError: string | null = (() => {
+    if (definitionsQuery.isError)
+      return `Workflow API unavailable: ${(definitionsQuery.error as Error)?.message ?? 'unknown'}`;
+    return null;
+  })();
+
+  // -------------------------------------------------------------------------
+  // Mutations
+  // -------------------------------------------------------------------------
+
+  const commandMutation = useMutation(
+    commandMutationOptions(qc, {
+      onMutationError: (msg) => setMutationError(msg),
+    }),
+  );
+
+  const createRunMutation = useMutation(
+    createRunMutationOptions(qc, {
+      onSelectRunId: (id) => {
+        setSelectedRunId(id);
+        setSelectedNode(null);
+      },
+    }),
+  );
+
+  // -------------------------------------------------------------------------
+  // Handlers (preserve original signatures consumed by child components)
+  // -------------------------------------------------------------------------
+
+  const runCommand = useCallback(
+    async (command: RunCommand, body: Record<string, unknown> = {}): Promise<void> => {
+      if (!detail) return;
+      setMutationError(null);
+      // Capture epoch at dispatch time — passed as a variable so mutationFn
+      // and onSuccess both guard against auth transitions that fire in-flight.
+      await commandMutation.mutateAsync({
+        runId: detail.run.run_id,
+        command,
+        body,
+        authEpoch: getAuthEpoch(),
+      });
+    },
+    [detail, commandMutation],
+  );
+
+  const createRun = useCallback(
+    async (input: { goal: string; repo: string; definition_hash: string }): Promise<void> => {
+      setMutationError(null);
+      // Capture epoch at dispatch time — passed as a variable so onSuccess
+      // guards against auth transitions that fire while createRun is in-flight.
+      await createRunMutation.mutateAsync({ ...input, authEpoch: getAuthEpoch() });
+    },
+    [createRunMutation],
+  );
 
   const selectRun = (runId: string) => {
     setSelectedRunId(runId);
     setSelectedNode(null);
-    setDetail(null);
   };
 
-  const runCommand = async (command: RunCommand, body: Record<string, unknown> = {}) => {
-    if (!detail) return;
-    setBusy(true);
-    setError(null);
-    try {
-      setDetail(await workflowApi.command(detail.run.run_id, command, { actor: 'owner', ...body }));
-      await refresh();
-    } catch (e) {
-      setError(`${command} failed: ${(e as Error).message}`);
-    } finally {
-      setBusy(false);
-    }
-  };
+  // -------------------------------------------------------------------------
+  // Derived view values
+  // -------------------------------------------------------------------------
 
-  const createRun = async (input: { goal: string; repo: string; definition_hash: string }) => {
-    setBusy(true);
-    setError(null);
-    try {
-      const created = await workflowApi.createRun({
-        goal: input.goal,
-        repo: input.repo || undefined,
-        definition_hash: input.definition_hash,
-      });
-      setSelectedRunId(created.run.run_id);
-      setSelectedNode(null);
-      setDetail(created);
-      await refresh();
-    } catch (e) {
-      setError(`Could not start run: ${(e as Error).message}`);
-    } finally {
-      setBusy(false);
-    }
-  };
+  const busy = commandMutation.isPending || createRunMutation.isPending;
+  const error = mutationError ?? networkError;
 
-  const canonicalHash = definitions.find((d) => d.canonical)?.definition_hash ?? '';
-  const definition = definitionCache[detail?.run.definition_hash ?? canonicalHash];
+  const linked = focus && detail?.run.run_id === focus.runId ? focus : null;
   const focusNode = selectedNode ?? detail?.run.current_node ?? null;
   const focusDef = definition?.nodes.find((n) => n.name === focusNode);
   const currentDef = definition?.nodes.find((n) => n.name === detail?.run.current_node);
+
+  // -------------------------------------------------------------------------
+  // Edit mode render
+  // -------------------------------------------------------------------------
 
   if (studioMode === 'edit') {
     return (
@@ -181,14 +243,18 @@ export const ProcessStudio: React.FC<ProcessStudioProps> = ({ focus = null, onDi
     );
   }
 
+  // -------------------------------------------------------------------------
+  // Observe mode render
+  // -------------------------------------------------------------------------
+
   return (
     <div className="flex-1 flex overflow-hidden">
       {/* Run list */}
       <aside className="w-72 shrink-0 border-r border-slate-800 bg-[#0b1120] p-3 overflow-hidden flex flex-col">
         <WorkflowSelector
           runs={runs}
-          definitions={definitions}
-          selectedRunId={selectedRunId}
+          definitions={definitionsList}
+          selectedRunId={effectiveRunId}
           onSelectRun={selectRun}
           onCreateRun={createRun}
           busy={busy}
@@ -242,7 +308,7 @@ export const ProcessStudio: React.FC<ProcessStudioProps> = ({ focus = null, onDi
               {error ?? 'Lost connection to /api/workflow — retrying…'}
             </span>
             {error && (
-              <button onClick={() => setError(null)} className="text-red-300 hover:text-white">
+              <button onClick={() => setMutationError(null)} className="text-red-300 hover:text-white">
                 <X size={14} />
               </button>
             )}
