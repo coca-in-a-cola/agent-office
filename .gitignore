@@ -14,4 +14,7 @@ node_modules/
 .codegraph/
 
 # Frontend build output (source-only workflow; build via CI/CD)
-web/dist/
+# web/dist is a symlink when deploy is active; no trailing slash so both symlink and dir are ignored
+web/dist
+web/releases/
+web/dist-backup-*/
