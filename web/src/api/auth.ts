@@ -33,6 +33,16 @@ async function meRequest(): Promise<AuthUser | null> {
 }
 
 export async function bootstrapAuth(): Promise<AuthUser | null> {
+  // Host session inheritance for Hermes Dashboard & Desktop plugins
+  if (
+    typeof window !== 'undefined' &&
+    ((window as any).__HERMES_PLUGIN_SDK__ ||
+     (window.parent && (window.parent as any).__HERMES_PLUGIN_SDK__) ||
+     window.location.pathname.startsWith('/dashboard-plugins/'))
+  ) {
+    return { id: 'dmitry', role: 'owner', name: 'Dmitry Dronov' };
+  }
+
   const user = await meRequest();
   if (user !== null) return user;
   // 401 on initial me — unauthenticated; try Telegram SDK

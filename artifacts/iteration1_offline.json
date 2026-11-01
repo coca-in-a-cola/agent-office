@@ -1,0 +1,397 @@
+{
+  "kind": "OFFLINE ATLAS COMPOSITE, NOT WEBGL",
+  "viewport": [
+    800,
+    600
+  ],
+  "runtimeScale": 1,
+  "pose": "miro_typing_01",
+  "layout": {
+    "originX": 400,
+    "originY": 270,
+    "floorTiles": [
+      {
+        "name": "floor_0_0",
+        "gridX": 0,
+        "gridY": 0,
+        "screenX": 400,
+        "screenY": 270,
+        "zIndex": 0,
+        "anchor": {
+          "x": 0.5,
+          "y": 0.5
+        }
+      },
+      {
+        "name": "floor_1_0",
+        "gridX": 1,
+        "gridY": 0,
+        "screenX": 432,
+        "screenY": 286,
+        "zIndex": 10,
+        "anchor": {
+          "x": 0.5,
+          "y": 0.5
+        }
+      },
+      {
+        "name": "floor_2_0",
+        "gridX": 2,
+        "gridY": 0,
+        "screenX": 464,
+        "screenY": 302,
+        "zIndex": 20,
+        "anchor": {
+          "x": 0.5,
+          "y": 0.5
+        }
+      },
+      {
+        "name": "floor_0_1",
+        "gridX": 0,
+        "gridY": 1,
+        "screenX": 368,
+        "screenY": 286,
+        "zIndex": 10,
+        "anchor": {
+          "x": 0.5,
+          "y": 0.5
+        }
+      },
+      {
+        "name": "floor_1_1",
+        "gridX": 1,
+        "gridY": 1,
+        "screenX": 400,
+        "screenY": 302,
+        "zIndex": 20,
+        "anchor": {
+          "x": 0.5,
+          "y": 0.5
+        }
+      },
+      {
+        "name": "floor_2_1",
+        "gridX": 2,
+        "gridY": 1,
+        "screenX": 432,
+        "screenY": 318,
+        "zIndex": 30,
+        "anchor": {
+          "x": 0.5,
+          "y": 0.5
+        }
+      },
+      {
+        "name": "floor_0_2",
+        "gridX": 0,
+        "gridY": 2,
+        "screenX": 336,
+        "screenY": 302,
+        "zIndex": 20,
+        "anchor": {
+          "x": 0.5,
+          "y": 0.5
+        }
+      },
+      {
+        "name": "floor_1_2",
+        "gridX": 1,
+        "gridY": 2,
+        "screenX": 368,
+        "screenY": 318,
+        "zIndex": 30,
+        "anchor": {
+          "x": 0.5,
+          "y": 0.5
+        }
+      },
+      {
+        "name": "floor_2_2",
+        "gridX": 2,
+        "gridY": 2,
+        "screenX": 400,
+        "screenY": 334,
+        "zIndex": 40,
+        "anchor": {
+          "x": 0.5,
+          "y": 0.5
+        }
+      }
+    ],
+    "wall": {
+      "name": "wall_cutaway",
+      "screenX": 400,
+      "screenY": 254,
+      "zIndex": 100,
+      "anchor": {
+        "x": 0.5,
+        "y": 0.55
+      }
+    },
+    "ficus": {
+      "name": "ficus",
+      "gridX": 2,
+      "gridY": 0.05,
+      "screenX": 462.4,
+      "screenY": 302.8,
+      "zIndex": 150,
+      "anchor": {
+        "x": 0.5,
+        "y": 0.88125
+      }
+    },
+    "chair": {
+      "name": "chair_teal",
+      "gridX": 0.35,
+      "gridY": 1.15,
+      "screenX": 374.4,
+      "screenY": 294,
+      "zIndex": 200,
+      "anchor": {
+        "x": 0.5,
+        "y": 0.8125
+      }
+    },
+    "miro": {
+      "name": "miro",
+      "gridX": 0.35,
+      "gridY": 1.15,
+      "screenX": 374.4,
+      "screenY": 294,
+      "zIndex": 250,
+      "anchor": {
+        "x": 0.5,
+        "y": 0.9196428571428571
+      }
+    },
+    "desk": {
+      "name": "desk_wood",
+      "gridX": 1.05,
+      "gridY": 1.45,
+      "screenX": 387.2,
+      "screenY": 310,
+      "zIndex": 240,
+      "anchor": {
+        "x": 0.5,
+        "y": 0.8194444444444444
+      }
+    }
+  },
+  "atlas": {
+    "frames": {
+      "floor_sage": {
+        "frame": {
+          "x": 4,
+          "y": 4,
+          "w": 64,
+          "h": 32
+        },
+        "rotated": false,
+        "trimmed": false,
+        "spriteSourceSize": {
+          "x": 0,
+          "y": 0,
+          "w": 64,
+          "h": 32
+        },
+        "sourceSize": {
+          "w": 64,
+          "h": 32
+        },
+        "anchor": {
+          "x": 0.5,
+          "y": 0.5
+        }
+      },
+      "wall_cutaway": {
+        "frame": {
+          "x": 76,
+          "y": 4,
+          "w": 224,
+          "h": 160
+        },
+        "rotated": false,
+        "trimmed": false,
+        "spriteSourceSize": {
+          "x": 0,
+          "y": 0,
+          "w": 224,
+          "h": 160
+        },
+        "sourceSize": {
+          "w": 224,
+          "h": 160
+        },
+        "anchor": {
+          "x": 0.5,
+          "y": 0.55
+        }
+      },
+      "desk_wood": {
+        "frame": {
+          "x": 308,
+          "y": 4,
+          "w": 160,
+          "h": 144
+        },
+        "rotated": false,
+        "trimmed": false,
+        "spriteSourceSize": {
+          "x": 0,
+          "y": 0,
+          "w": 160,
+          "h": 144
+        },
+        "sourceSize": {
+          "w": 160,
+          "h": 144
+        },
+        "anchor": {
+          "x": 0.5,
+          "y": 0.8194444444444444
+        }
+      },
+      "chair_teal": {
+        "frame": {
+          "x": 476,
+          "y": 4,
+          "w": 112,
+          "h": 128
+        },
+        "rotated": false,
+        "trimmed": false,
+        "spriteSourceSize": {
+          "x": 0,
+          "y": 0,
+          "w": 112,
+          "h": 128
+        },
+        "sourceSize": {
+          "w": 112,
+          "h": 128
+        },
+        "anchor": {
+          "x": 0.5,
+          "y": 0.8125
+        }
+      },
+      "ficus": {
+        "frame": {
+          "x": 596,
+          "y": 4,
+          "w": 112,
+          "h": 160
+        },
+        "rotated": false,
+        "trimmed": false,
+        "spriteSourceSize": {
+          "x": 0,
+          "y": 0,
+          "w": 112,
+          "h": 160
+        },
+        "sourceSize": {
+          "w": 112,
+          "h": 160
+        },
+        "anchor": {
+          "x": 0.5,
+          "y": 0.88125
+        }
+      },
+      "miro_idle": {
+        "frame": {
+          "x": 716,
+          "y": 4,
+          "w": 80,
+          "h": 112
+        },
+        "rotated": false,
+        "trimmed": false,
+        "spriteSourceSize": {
+          "x": 0,
+          "y": 0,
+          "w": 80,
+          "h": 112
+        },
+        "sourceSize": {
+          "w": 80,
+          "h": 112
+        },
+        "anchor": {
+          "x": 0.5,
+          "y": 0.9196428571428571
+        }
+      },
+      "miro_typing_01": {
+        "frame": {
+          "x": 804,
+          "y": 4,
+          "w": 80,
+          "h": 112
+        },
+        "rotated": false,
+        "trimmed": false,
+        "spriteSourceSize": {
+          "x": 0,
+          "y": 0,
+          "w": 80,
+          "h": 112
+        },
+        "sourceSize": {
+          "w": 80,
+          "h": 112
+        },
+        "anchor": {
+          "x": 0.5,
+          "y": 0.9196428571428571
+        }
+      },
+      "miro_typing_02": {
+        "frame": {
+          "x": 892,
+          "y": 4,
+          "w": 80,
+          "h": 112
+        },
+        "rotated": false,
+        "trimmed": false,
+        "spriteSourceSize": {
+          "x": 0,
+          "y": 0,
+          "w": 80,
+          "h": 112
+        },
+        "sourceSize": {
+          "w": 80,
+          "h": 112
+        },
+        "anchor": {
+          "x": 0.5,
+          "y": 0.9196428571428571
+        }
+      }
+    },
+    "animations": {
+      "miro_idle": [
+        "miro_idle"
+      ],
+      "miro_typing": [
+        "miro_typing_01",
+        "miro_typing_02"
+      ]
+    },
+    "meta": {
+      "app": "Artist-2D native librsvg/Cairo exporter",
+      "version": "1.0",
+      "image": "own_tycoon_atlas.png",
+      "format": "RGBA8888",
+      "size": {
+        "w": 1024,
+        "h": 1024
+      },
+      "scale": "1"
+    }
+  }
+}

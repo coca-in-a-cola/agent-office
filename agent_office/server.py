@@ -608,6 +608,9 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
         expected_ports = {server_port}
         if host_port:
             expected_ports.add(host_port)
+        else:
+            # No explicit port in Host header → reverse proxy on standard port
+            expected_ports.update({"80", "443"})
 
         if origin:
             parsed = urlparse(origin)

@@ -1,0 +1,14 @@
+{
+  "name": "agent-office",
+  "label": "Agent Office",
+  "description": "Task factory and model governance suite",
+  "icon": "Building2",
+  "version": "1.0.0",
+  "tab": {
+    "path": "/agent-office",
+    "position": "after:kanban"
+  },
+  "entry": "dist/index.js",
+  "css": "dist/style.css",
+  "api": "plugin_api.py"
+}

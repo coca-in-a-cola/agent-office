@@ -2,6 +2,8 @@
 
 This document provides a comprehensive architectural map of **Agent Office**, detailing its component pipelines, execution lifecycle, runtime ownership, authentication and trust boundaries, and product-versus-deployment configuration separation.
 
+> **New to this codebase?** Start with [AGENTS.md](AGENTS.md) for the agent onboarding guide, CodeGraph setup, and CLI quickstart.
+
 ---
 
 ## 1. High-Level System Overview
