@@ -1,4 +1,10 @@
-# Agent Office
+# ARCHIVED REPOSITORY — MOVED TO agent-office-reworked
+> **Notice**: This legacy prototype is archived. Active development, tools, and runtime live at:
+> https://github.com/coca-in-a-cola/agent-office-reworked
+
+---
+
+# Agent Office (Legacy)
 
 **Agent Office** is an operational telemetry, state projection, and workflow orchestration suite designed for autonomous agents running on the [Hermes Agent framework](https://hermes-agent.nousresearch.com/docs).
 
