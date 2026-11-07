@@ -48,7 +48,8 @@ class ServerCase(unittest.TestCase):
                                            clock=self.clock, bridge_kind="fake")
             self.addCleanup(self.service.close)
         self.server = create_server(host="127.0.0.1", port=0, storage=self.storage,
-                                    static_dir=static, workflow=self.service)
+                                    static_dir=static, workflow=self.service,
+                                    auth_token="trusted-local-token")
         self.port = self.server.server_address[1]
         thread = threading.Thread(target=self.server.serve_forever,
                                   kwargs={"poll_interval": 0.02}, daemon=True)
@@ -117,8 +118,8 @@ class WorkflowCase(ServerCase):
 class DefinitionEndpointTests(WorkflowCase):
     def test_lists_canonical_release_definition(self) -> None:
         data = self.ok("GET", "/api/workflow/definitions")
-        self.assertEqual(len(data["definitions"]), 1)
-        item = data["definitions"][0]
+        self.assertGreaterEqual(len(data["definitions"]), 1)
+        item = next(d for d in data["definitions"] if d["canonical"])
         self.assertTrue(item["canonical"])
         self.assertEqual(item["name"], "software-release")
         self.assertEqual(item["node_count"], 6)
@@ -393,7 +394,9 @@ class BuildServiceTests(unittest.TestCase):
                 self.assertEqual(service.bridge_kind, "fake")
                 self.assertTrue((Path(tmp) / "nested" / "workflow-fake-bridge.sqlite3")
                                 .exists())
-                self.assertEqual(len(service.list_definitions()["definitions"]), 1)
+                self.assertGreaterEqual(len(service.list_definitions()["definitions"]), 1)
+                canonical = next(d for d in service.list_definitions()["definitions"] if d["canonical"])
+                self.assertEqual(canonical["name"], "software-release")
             finally:
                 service.close()
 

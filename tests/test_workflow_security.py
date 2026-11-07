@@ -77,6 +77,7 @@ class SecurityTestBase(unittest.TestCase):
             static_dir=static_dir,
             workflow=self.service,
             editor=self.editor,
+            auth_token="trusted-local-token",
         )
         self.port = self.server.server_address[1]
         self.thread = threading.Thread(
