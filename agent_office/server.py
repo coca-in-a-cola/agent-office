@@ -504,7 +504,7 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
     def end_headers(self) -> None:
         """Inject CORS and caching headers."""
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         super().end_headers()
 
@@ -554,6 +554,10 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
 
         # Route: Workstation Monitor and Task Bridge drill-down
         parts = [unquote(p) for p in parsed_path.split("/") if p]
+        if len(parts) == 4 and parts[:2] == ["api", "agents"] and parts[3] == "policy":
+            agent_id = parts[2]
+            self.handle_api_call(lambda: self._get_agent_policy(agent_id))
+            return
         if len(parts) == 4 and parts[:2] == ["api", "agents"] and parts[3] == "monitor":
             self.handle_api_call(lambda: self._check_log_access(lambda: get_agent_monitor(
                 parts[2], self.storage, self.workflow, self.bridge, self.query_tail())))
@@ -572,6 +576,53 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
         actor = self.get_verified_actor(require_auth=True)
         self.check_grant(actor, "read_logs")
         return producer()
+
+    def _get_agent_policy(self, agent_id: str) -> dict[str, Any]:
+        """Return persisted model routing policy for an agent.
+
+        Requires authentication; any authenticated actor may read their own
+        or any other agent's policy (read is less privileged than write).
+        Returns 404 when the agent is not found in storage and not a default
+        workstation, 503 when storage is not configured.
+        """
+        if (
+            not agent_id
+            or agent_id != agent_id.strip()
+            or "/" in agent_id
+            or "\\" in agent_id
+            or ".." in agent_id
+            or any(ord(c) < 32 or ord(c) == 127 for c in agent_id)
+        ):
+            raise WorkflowApiError(400, "invalid agent id")
+        self.get_verified_actor(require_auth=True)
+        storage = self.storage
+        if storage is None:
+            raise WorkflowApiError(503, "storage is not configured")
+        agent = storage.get_agent(agent_id)
+        if agent is None:
+            ws_def = next((w for w in DEFAULT_WORKSTATIONS if w.get("id") == agent_id), None)
+            if ws_def is None:
+                raise WorkflowApiError(404, f"agent {agent_id!r} not found")
+            # Return default workstation policy (not yet persisted)
+            return {
+                "status": "ok",
+                "agent_id": agent_id,
+                "models": ws_def.get("models", []),
+                "routing_strategy": ws_def.get("routing_strategy", "priority"),
+                "policy_revision": None,
+                "persisted": False,
+            }
+        meta = agent.get("metadata") or {}
+        if not isinstance(meta, dict):
+            meta = {}
+        return {
+            "status": "ok",
+            "agent_id": agent_id,
+            "models": agent.get("models") or [],
+            "routing_strategy": agent.get("routing_strategy") or "priority",
+            "policy_revision": agent.get("policy_revision"),
+            "persisted": True,
+        }
 
     def validate_csrf(self) -> None:
         origin = self.headers.get("Origin")
@@ -859,6 +910,24 @@ class OfficeRequestHandler(SimpleHTTPRequestHandler):
             self.send_json(exc.status, payload)
         except Exception as exc:
             logger.exception("Error processing POST %s", parsed_path)
+            self.send_json(HTTPStatus.INTERNAL_SERVER_ERROR,
+                           {"status": "error", "message": f"internal error: {exc}"})
+
+    def do_PUT(self) -> None:
+        """Handle PUT requests; /api/agents/{id}/policy upsert is identical to POST."""
+        parsed_path = self.path.split("?")[0].rstrip("/")
+        agent_parts = [unquote(p) for p in parsed_path.split("/") if p]
+        if len(agent_parts) == 4 and agent_parts[:2] == ["api", "agents"] and agent_parts[3] == "policy":
+            # Reuse the POST handler directly (it validates CSRF, auth, and sends the response).
+            self.do_POST()
+            return
+        try:
+            self.validate_csrf()
+            self.send_json(HTTPStatus.NOT_FOUND, {"status": "error", "message": "not found"})
+        except WorkflowApiError as exc:
+            self.send_json(exc.status, {"status": "error", "message": exc.message})
+        except Exception as exc:
+            logger.exception("Error processing PUT %s", parsed_path)
             self.send_json(HTTPStatus.INTERNAL_SERVER_ERROR,
                            {"status": "error", "message": f"internal error: {exc}"})
 
